@@ -540,6 +540,24 @@ class BackgroundOverlayTests(unittest.TestCase):
 
         self.assertGreater(float(final[4, 4]), float(heuristic[4, 4]), "learned refiner should be able to modify final replace matte")
 
+    def test_composite_caches_latest_final_matte_for_followup_effects(self):
+        effects = self._make_effects()
+        effects._bg_mode = "replace"
+
+        frame = np.zeros((8, 8, 4), dtype=np.uint8)
+        frame[:, 4:, :3] = 220
+        frame[:, :, 3] = 255
+        alpha = np.zeros((8, 8), dtype=np.float32)
+        alpha[:, 3:6] = 0.7
+
+        effects._commit_alpha(alpha.copy(), effects._matte_version)
+        effects._composite(frame.copy(), alpha.copy(), 8, 8, effects._matte_version)
+        latest = effects.latest_final_matte_u8(8, 8)
+
+        self.assertIsNotNone(latest, "composite should cache the final matte for same-frame followup effects")
+        self.assertEqual(latest.shape, (8, 8))
+        self.assertGreater(int(latest[4, 4]), 0)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -7,6 +7,7 @@ from unittest import mock
 from nvbroadcast.core.config import detect_compositing_backends, detect_system_capabilities
 from nvbroadcast.core.dependency_installer import DependencyInstaller
 from nvbroadcast.core.platform import (
+    get_onnx_providers,
     get_trt_cache_dir,
     get_tensorrt_lib_dirs,
     has_tensorrt_runtime,
@@ -157,6 +158,19 @@ class ArchSupportTests(unittest.TestCase):
             notice = python_runtime_advisory((3, 14), has_trt_runtime=True)
         self.assertIsNotNone(notice)
         self.assertIn("already installed", notice[2])
+
+    def test_cuda_provider_uses_unified_stream_for_threaded_live_pipelines(self):
+        fake_ort = SimpleNamespace(
+            get_available_providers=lambda: ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        )
+        with mock.patch.dict("sys.modules", {"onnxruntime": fake_ort}), \
+             mock.patch("nvbroadcast.core.platform.supports_linux_gpu_stack", return_value=True):
+            providers = get_onnx_providers(gpu_index=1)
+
+        cuda = providers[0]
+        self.assertEqual(cuda[0], "CUDAExecutionProvider")
+        self.assertTrue(cuda[1]["do_copy_in_default_stream"])
+        self.assertTrue(cuda[1]["use_ep_level_unified_stream"])
 
 
 if __name__ == "__main__":

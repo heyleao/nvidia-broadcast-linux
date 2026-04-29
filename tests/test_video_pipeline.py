@@ -1,4 +1,6 @@
 import unittest
+import threading
+import time
 from unittest import mock
 
 import gi
@@ -110,6 +112,38 @@ class VideoPipelineRebuildTests(unittest.TestCase):
 
         self.assertEqual(result, Gst.FlowReturn.OK)
         self.assertEqual(appsrc.calls, 1)
+
+    def test_alpha_worker_reuses_single_thread_and_keeps_latest_frame(self):
+        pipeline = VideoPipeline()
+        seen_threads = []
+        processed_markers = []
+        first_started = threading.Event()
+        second_done = threading.Event()
+
+        def alpha_callback(frame_data, _width, _height):
+            seen_threads.append(threading.get_ident())
+            processed_markers.append(frame_data[0])
+            if len(processed_markers) == 1:
+                first_started.set()
+                time.sleep(0.05)
+            elif len(processed_markers) >= 2:
+                second_done.set()
+
+        pipeline.set_alpha_callback(alpha_callback)
+
+        try:
+            pipeline._submit_alpha_frame(bytes([1]) * 16, 2, 2)
+            self.assertTrue(first_started.wait(1.0))
+            pipeline._submit_alpha_frame(bytes([2]) * 16, 2, 2)
+            pipeline._submit_alpha_frame(bytes([3]) * 16, 2, 2)
+            self.assertTrue(second_done.wait(1.0))
+        finally:
+            pipeline._stop_alpha_worker()
+
+        self.assertGreaterEqual(len(processed_markers), 2)
+        self.assertEqual(processed_markers[0], 1)
+        self.assertEqual(processed_markers[1], 3)
+        self.assertEqual(len(set(seen_threads)), 1)
 
 
 if __name__ == "__main__":

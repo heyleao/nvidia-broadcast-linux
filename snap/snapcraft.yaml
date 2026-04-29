@@ -1,7 +1,7 @@
 name: nvbroadcast
 base: core24
-version: '1.1.5'
-summary: Stability and live quality patch for meetings and streaming
+version: '1.1.6'
+summary: Live background performance and stability patch
 description: |
   NV Broadcast is an AI-powered virtual camera and voice enhancement app for
   Linux. It brings background blur, background replace, green-screen remove,
@@ -9,17 +9,14 @@ description: |
   local meeting transcription into one app.
 
   Recommended stable update:
-  - v1.1.5 stabilizes effect and mode switching so the camera path is less
-    likely to freeze, die, or reopen devices in a bad state.
-  - Zeus and Killer now recognize current tensorrt-cu12 installations more
-    reliably, while the app keeps safer fallback behavior when TensorRT is not
-    usable on the current system.
-  - Duplicate nvbroadcast mic and speaker entries are cleaned up, and startup
-    audio restore is less noisy and less likely to churn the virtual-device
-    path.
-  - Live face and replace quality are improved for motion: beautify denoise is
-    face-ROI scoped, and replace mode reduces false shoulder and underarm
-    background breakout during overlap.
+  - v1.1.6 fixes a major live background regression where the alpha path could
+    bounce across short-lived threads, trigger CUDA invalid-resource-handle
+    failures, and fall into repeated RVM state resets.
+  - Replace-mode live processing now reuses more same-frame matte work instead
+    of rebuilding it twice, which cuts unnecessary background cost when
+    relighting is also enabled.
+  - Beautify keeps more work local to the face ROI and preserves raw history
+    more carefully, which reduces motion smear around the face and glasses.
 
   Core features:
   - Blur your background

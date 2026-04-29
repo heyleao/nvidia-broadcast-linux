@@ -1248,6 +1248,10 @@ class VideoEffects:
         self._cached_alpha = None
         self._prev_alpha = None  # Previous frame's alpha for temporal smoothing
         self._stable_alpha = None  # Pre-tightened alpha for replacement smoothing
+        self._cached_replace_matte = None
+        self._cached_replace_matte_source_id = None
+        self._latest_final_matte_u8 = None
+        self._latest_final_matte_size = None
         self._matte_version = 0
         self._skip_interval = 1
         self._temporal_strength = 0.34  # EMA weight for temporal smoothing
@@ -1266,6 +1270,10 @@ class VideoEffects:
             self._cached_alpha = None
             self._prev_alpha = None
             self._stable_alpha = None
+            self._cached_replace_matte = None
+            self._cached_replace_matte_source_id = None
+            self._latest_final_matte_u8 = None
+            self._latest_final_matte_size = None
 
     def _prepare_backend_handoff(self):
         """Invalidate temporal state while keeping the last matte visible."""
@@ -1273,11 +1281,24 @@ class VideoEffects:
             self._matte_version += 1
             self._prev_alpha = None
             self._stable_alpha = None
+            self._cached_replace_matte = None
+            self._cached_replace_matte_source_id = None
+            self._latest_final_matte_u8 = None
+            self._latest_final_matte_size = None
 
     def _matte_snapshot(self) -> tuple[np.ndarray | None, int]:
         """Return the current cached alpha and its generation."""
         with self._state_lock:
             return self._cached_alpha, self._matte_version
+
+    def latest_final_matte_u8(self, width: int, height: int) -> np.ndarray | None:
+        """Return the most recent per-frame final matte, if it matches this frame size."""
+        with self._state_lock:
+            if self._latest_final_matte_u8 is None:
+                return None
+            if self._latest_final_matte_size != (width, height):
+                return None
+            return self._latest_final_matte_u8.copy()
 
     def _remember_frame_size(self, width: int, height: int) -> None:
         """Track the most recent live frame size for backend handoff warmup."""
@@ -1802,6 +1823,26 @@ class VideoEffects:
             self._stable_alpha = stable.copy()
         return matte
 
+    def _replacement_matte_cached(self, alpha: np.ndarray,
+                                  matte_version: int | None = None) -> np.ndarray:
+        """Reuse the alpha-only replacement matte while the cached alpha is unchanged."""
+        alpha_id = id(alpha)
+        with self._state_lock:
+            if (
+                self._cached_replace_matte is not None
+                and self._cached_replace_matte_source_id == alpha_id
+                and self._cached_replace_matte.shape == alpha.shape
+            ):
+                return self._cached_replace_matte.copy()
+
+        matte = self._replacement_matte(alpha, matte_version)
+        with self._state_lock:
+            if matte_version is not None and matte_version != self._matte_version:
+                return alpha
+            self._cached_replace_matte = matte.copy()
+            self._cached_replace_matte_source_id = alpha_id
+        return matte
+
     def _edge_aware_replace_matte(self, frame: np.ndarray, matte: np.ndarray) -> np.ndarray:
         """Sharpen replace-mode transitions where the camera frame has a real edge.
 
@@ -1814,16 +1855,29 @@ class VideoEffects:
         if matte is None or min(matte.shape[:2]) < 8:
             return matte
 
+        h, w = matte.shape[:2]
         gray = cv2.cvtColor(frame, cv2.COLOR_BGRA2GRAY).astype(np.float32) * (1.0 / 255.0)
-        gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
-        gy = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
-        grad = cv2.magnitude(gx, gy)
-        grad = cv2.GaussianBlur(grad, (3, 3), 0)
-        edge_strength = np.clip((grad - 0.03) / 0.20, 0.0, 1.0)
-
         transition = (matte > 0.05) & (matte < 0.95)
         if not transition.any():
             return matte
+
+        if max(h, w) >= 960 or min(h, w) >= 540:
+            sw = max(8, w // 2)
+            sh = max(8, h // 2)
+            gray_small = cv2.resize(gray, (sw, sh), interpolation=cv2.INTER_AREA)
+            matte_small = cv2.resize(matte, (sw, sh), interpolation=cv2.INTER_LINEAR)
+            gx = cv2.Sobel(gray_small, cv2.CV_32F, 1, 0, ksize=3)
+            gy = cv2.Sobel(gray_small, cv2.CV_32F, 0, 1, ksize=3)
+            grad = cv2.magnitude(gx, gy)
+            grad = cv2.GaussianBlur(grad, (3, 3), 0)
+            edge_small = np.clip((grad - 0.03) / 0.20, 0.0, 1.0)
+            edge_strength = cv2.resize(edge_small, (w, h), interpolation=cv2.INTER_LINEAR)
+        else:
+            gx = cv2.Sobel(gray, cv2.CV_32F, 1, 0, ksize=3)
+            gy = cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)
+            grad = cv2.magnitude(gx, gy)
+            grad = cv2.GaussianBlur(grad, (3, 3), 0)
+            edge_strength = np.clip((grad - 0.03) / 0.20, 0.0, 1.0)
 
         focus = edge_strength * transition.astype(np.float32)
         if float(focus.max()) < 0.08:
@@ -1884,7 +1938,7 @@ class VideoEffects:
     def _final_matte(self, frame: np.ndarray, alpha: np.ndarray,
                      matte_version: int | None = None) -> np.ndarray:
         if self._bg_mode == "replace":
-            matte = self._replacement_matte(alpha, matte_version)
+            matte = self._replacement_matte_cached(alpha, matte_version)
             matte = self._edge_aware_replace_matte(frame, matte)
             return self._apply_learned_refiner("replace", frame, matte)
         if self._bg_mode == "remove":
@@ -1920,6 +1974,10 @@ class VideoEffects:
             alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
 
         alpha = self._final_matte(frame, alpha, matte_version)
+        with self._state_lock:
+            if matte_version is None or matte_version == self._matte_version:
+                self._latest_final_matte_u8 = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
+                self._latest_final_matte_size = (width, height)
 
         # Fused CUDA kernel path (DocZeus/Killer) — single GPU pass
         if self._use_fused_kernel and self._cupy is not None:

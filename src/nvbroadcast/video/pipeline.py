@@ -52,8 +52,12 @@ class VideoPipeline:
         self._throttle_acc = 0.0
         self._last_effect_output = None
         self._pending_frame = None       # Latest raw frame for effects thread
-        self._effects_busy = False       # True while effects thread is processing
+        self._effects_busy = False       # True while alpha worker is processing
         self._alpha_worker_enabled = True
+        self._alpha_thread = None
+        self._alpha_pending = None
+        self._alpha_condition = threading.Condition()
+        self._alpha_shutdown = False
         self._vcam_failed = False
         self._recording = False
         self._recording_pipeline = None
@@ -231,6 +235,71 @@ class VideoPipeline:
         against the same cached matte or replacement edges will fight themselves.
         """
         self._alpha_worker_enabled = enabled
+        if not enabled:
+            with self._alpha_condition:
+                self._alpha_pending = None
+                self._alpha_condition.notify_all()
+
+    def _ensure_alpha_worker(self) -> None:
+        """Start a dedicated alpha worker thread once for this pipeline.
+
+        ONNX Runtime CUDA sessions are stable when one thread owns inference,
+        but they can fail with invalid resource handles if inference hops across
+        many short-lived Python threads. Keep one long-lived worker instead of
+        spawning a fresh thread for each frame.
+        """
+        with self._alpha_condition:
+            if self._alpha_shutdown:
+                return
+            if self._alpha_thread and self._alpha_thread.is_alive():
+                return
+            self._alpha_thread = threading.Thread(
+                target=self._alpha_worker_loop,
+                name="nvbroadcast-alpha",
+                daemon=True,
+            )
+            self._alpha_thread.start()
+
+    def _submit_alpha_frame(self, frame_data: bytes, width: int, height: int) -> None:
+        """Queue the newest frame for background alpha inference."""
+        self._ensure_alpha_worker()
+        with self._alpha_condition:
+            self._alpha_pending = (frame_data, width, height)
+            self._alpha_condition.notify()
+
+    def _alpha_worker_loop(self) -> None:
+        """Own alpha inference on one persistent worker thread."""
+        while True:
+            with self._alpha_condition:
+                while self._alpha_pending is None and not self._alpha_shutdown:
+                    self._alpha_condition.wait()
+                if self._alpha_shutdown:
+                    return
+                frame_data, width, height = self._alpha_pending
+                self._alpha_pending = None
+                self._effects_busy = True
+            try:
+                if self._alpha_callback:
+                    self._alpha_callback(frame_data, width, height)
+            except Exception as e:
+                if self._frame_count <= 10 or self._frame_count % 300 == 0:
+                    print(f"[NV Broadcast] Alpha/effects error: {e}", flush=True)
+            finally:
+                self._effects_busy = False
+
+    def _stop_alpha_worker(self, timeout_seconds: float = 0.5) -> None:
+        """Stop the dedicated alpha worker during app shutdown."""
+        thread = None
+        with self._alpha_condition:
+            self._alpha_shutdown = True
+            self._alpha_pending = None
+            thread = self._alpha_thread
+            self._alpha_condition.notify_all()
+        if thread and thread.is_alive() and thread is not threading.current_thread():
+            thread.join(timeout_seconds)
+        with self._alpha_condition:
+            self._alpha_thread = None
+            self._alpha_shutdown = False
 
     def set_preview_callback(self, callback):
         self._preview_callback = callback
@@ -510,7 +579,7 @@ class VideoPipeline:
                 return Gst.FlowReturn.OK
 
             # Background: kick off alpha inference (heavy, non-blocking)
-            if self._alpha_worker_enabled and self._alpha_callback and not self._effects_busy:
+            if self._alpha_worker_enabled and self._alpha_callback:
                 run_inference = True
                 if self._effects_fps < self._fps:
                     self._throttle_acc += 1.0 - (self._effects_fps / self._fps)
@@ -518,12 +587,7 @@ class VideoPipeline:
                         self._throttle_acc -= 1.0
                         run_inference = False
                 if run_inference:
-                    self._effects_busy = True
-                    threading.Thread(
-                        target=self._update_alpha_bg,
-                        args=(frame_data, self._width, self._height),
-                        daemon=True,
-                    ).start()
+                    self._submit_alpha_frame(frame_data, self._width, self._height)
 
             # Inline: composite current frame with latest alpha + all light effects
             if self._effect_callback:
@@ -577,14 +641,8 @@ class VideoPipeline:
 
     def _update_alpha_bg(self, frame_data, width, height):
         """Run alpha inference in background — never blocks the capture."""
-        try:
+        if self._alpha_callback:
             self._alpha_callback(frame_data, width, height)
-        except Exception as e:
-            # Always log — silent errors cause blank video
-            if self._frame_count <= 10 or self._frame_count % 300 == 0:
-                print(f"[NV Broadcast] Alpha/effects error: {e}", flush=True)
-        finally:
-            self._effects_busy = False
 
     def start_recording(self, filepath: str):
         """Start recording the processed output to an MP4 file."""
@@ -720,6 +778,9 @@ class VideoPipeline:
             if not self._teardown_done:
                 return
             self._running = False
+            with self._alpha_condition:
+                self._alpha_pending = None
+                self._alpha_condition.notify_all()
 
             cap = self._pipeline
             vcam = self._vcam_pipeline
@@ -790,6 +851,7 @@ class VideoPipeline:
             if cap:
                 cap.set_state(Gst.State.NULL)
         finally:
+            self._stop_alpha_worker(timeout_seconds=max(0.0, deadline - time.monotonic()))
             self._teardown_done = True
 
     def _poll_teardown(self):

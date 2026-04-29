@@ -13,6 +13,7 @@ import os
 import sys
 import threading
 import time
+from pathlib import Path
 
 import gi
 
@@ -492,7 +493,6 @@ class NVBroadcastApp(Adw.Application):
             use_nvdec = c.use_nvdec
         self._video_effects.set_engine_mode(use_tensorrt, use_fused_kernel)
         self._use_nvdec = use_nvdec
-        self._inline_inference = c.performance_profile in ("max_quality", "balanced")
         profile = PERFORMANCE_PROFILES.get(c.performance_profile, {})
         self._video_effects._skip_interval = profile.get("skip_interval", 1)
         self._video_effects._apply_edge_config(c.video.edge)
@@ -528,6 +528,7 @@ class NVBroadcastApp(Adw.Application):
         self._mirror = c.video.mirror
         self._autoframe.enabled = c.video.auto_frame
         self._autoframe.zoom_level = c.video.auto_frame_zoom
+        self._refresh_inference_policy()
 
         if c.audio.noise_removal or c.audio.voice_fx_enabled:
             audio_pipeline = self._ensure_audio_pipeline()
@@ -825,12 +826,7 @@ class NVBroadcastApp(Adw.Application):
 
             alpha_u8 = None
             if self._video_effects.enabled:
-                alpha, matte_version = self._video_effects._matte_snapshot()
-                if alpha is not None:
-                    if alpha.shape[0] != height or alpha.shape[1] != width:
-                        alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
-                    alpha = self._video_effects._final_matte(frame, alpha, matte_version)
-                    alpha_u8 = np.clip(alpha * 255.0, 0, 255).astype(np.uint8)
+                alpha_u8 = self._video_effects.latest_final_matte_u8(width, height)
 
             if self._eye_contact.enabled and landmarks is not None:
                 frame = self._eye_contact.process_frame(frame, landmarks=landmarks)
@@ -853,9 +849,48 @@ class NVBroadcastApp(Adw.Application):
                 self._beautifier.enabled or self._eye_contact.enabled or
                 self._relighter.enabled)
 
+    def _face_effect_load_score(self) -> int:
+        """Estimate how expensive the live face stack is on the display thread."""
+        score = 0
+        if self._beautifier.enabled:
+            score += 3
+        if self._eye_contact.enabled:
+            score += 1
+        if self._relighter.enabled:
+            score += 1
+        if self._autoframe.enabled:
+            score += 1
+        return score
+
+    def _compute_inline_inference(self) -> bool:
+        """Choose between fully-inline alpha and the async alpha worker.
+
+        Full inline alpha gives the freshest matte, but once heavy CPU-bound face
+        effects are active on Linux the live frame thread can fall far behind.
+        In that case it is better to keep the same model quality and move alpha
+        inference to the background worker so the preview/virtual camera stay
+        closer to real time.
+        """
+        if self.config.performance_profile not in ("max_quality", "balanced"):
+            return False
+        if not self._video_effects.enabled:
+            return True
+        if self.config.use_tensorrt:
+            return True
+        if self._video_effects.mode != "replace":
+            return True
+        return self._face_effect_load_score() < 3
+
+    def _refresh_inference_policy(self) -> None:
+        inline = self._compute_inline_inference()
+        self._inline_inference = inline
+        if self._video_pipeline:
+            self._video_pipeline.set_alpha_worker_enabled(not inline)
+
     def _update_pipeline_mode(self):
         if self._video_pipeline:
             self._video_pipeline.set_effects_active(self._any_video_effects_active())
+        self._refresh_inference_policy()
 
     # --- Effect Controls (save on every change) ---
 
@@ -910,9 +945,6 @@ class NVBroadcastApp(Adw.Application):
         self._use_nvdec = use_nvdec
         self.config.use_nvdec = use_nvdec
 
-        # Premium/balanced: inline inference (zero lag, ~20ms with optimized refine)
-        # Performance/potato: background thread to save CPU
-        self._inline_inference = profile_name in ("max_quality", "balanced")
         self.config.mode_key = mode_key or NVBroadcastWindow._profile_and_comp_to_mode(
             profile_name, self.config.compositing
         )
@@ -926,6 +958,7 @@ class NVBroadcastApp(Adw.Application):
 
         # Compute effects_fps from ratio * camera fps
         effects_fps = max(5, int(profile["effects_ratio"] * self.config.video.fps))
+        self._refresh_inference_policy()
         if self._video_pipeline:
             self._video_pipeline.set_effects_fps(effects_fps)
             self._video_pipeline.set_alpha_worker_enabled(not self._inline_inference)

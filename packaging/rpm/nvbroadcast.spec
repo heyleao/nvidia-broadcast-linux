@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.1.5
+Version:        1.1.6
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -143,6 +143,12 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Tue Apr 29 2026 doczeus <harshit@kshoonya.com> - 1.1.6-1
+- Fix the live background alpha path so one dedicated worker owns CUDA inference instead of hopping across short-lived threads
+- Stop repeated invalid-resource-handle failures and RVM reset loops that could make replace mode extremely laggy
+- Reuse same-frame final mattes for relighting and cache more replace-mode work to cut duplicate live processing cost
+- Keep beautify GPU work local to the face ROI and preserve raw denoise history more carefully for motion stability
+
 * Fri Apr 24 2026 doczeus <harshit@kshoonya.com> - 1.1.5-1
 - Stabilize effect and mode switching to avoid camera device-busy, freeze, and teardown races
 - Recognize current TensorRT cu12 package layouts and improve Zeus/Killer TensorRT runtime handoff

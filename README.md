@@ -42,6 +42,15 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
+### v1.1.6 — Live Background Performance and Stability Patch
+
+- **Fixed Background Reset Loops** — The live alpha path now uses one dedicated worker instead of bouncing inference across short-lived threads, which stops the CUDA invalid-resource-handle failures that could make replace mode collapse into repeated RVM resets
+- **Lower Replace-Mode Live Cost** — Relighting now reuses the same-frame final matte instead of rebuilding it, and replace-mode matte work is cached more aggressively on the live path
+- **Better Motion Handling Around Face Effects** — Beautify keeps GPU work local to the face ROI and preserves raw denoise history more carefully, reducing motion smear around the face and glasses
+- **Safer Heavy Live Stack Behavior** — The app is better at keeping the background path responsive on heavier Meeting-style stacks instead of compounding lag with duplicate work
+
+> If you are still on `v1.1.5` or older, update to `v1.1.6`. This is the recommended stable patch for the recent live background lag regression.
+
 ### v1.1.5 — Stability and Live Quality Patch
 
 - **Safer Effect + Mode Switching** — Video pipeline rebuilds now wait for teardown properly, which reduces camera freezes, device-busy failures, and mode-switch crashes
@@ -576,7 +585,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.1.5)
+│   ├── __init__.py              # Package version (1.1.6)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -609,7 +618,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v1.1.5)
+├── pyproject.toml               # Package config (v1.1.6)
 └── README.md
 ```
 

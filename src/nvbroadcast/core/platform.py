@@ -326,6 +326,10 @@ def get_onnx_providers(gpu_index: int = 0,
             'gpu_mem_limit': 2 * 1024 * 1024 * 1024,
             'cudnn_conv_algo_search': 'HEURISTIC',
             'do_copy_in_default_stream': True,
+            # GStreamer/GTK live pipelines can call inference from different
+            # worker threads over time. Use one EP-level CUDA stream so ORT
+            # does not keep per-thread stream/event state that can go stale.
+            'use_ep_level_unified_stream': True,
         }))
 
     if IS_MACOS and 'CoreMLExecutionProvider' in available:

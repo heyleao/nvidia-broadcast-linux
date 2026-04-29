@@ -220,52 +220,55 @@ class FaceBeautifier:
 
     def _apply_gpu_batch(self, frame: np.ndarray,
                          width: int, height: int) -> np.ndarray:
-        """Batch enhance + sharpen + vignette on GPU in one transfer."""
+        """Batch ROI-local enhance/sharpen on GPU; keep full-frame vignette on CPU.
+
+        Uploading the whole frame for beautify adds a large round-trip cost at
+        meeting resolutions. The actual face adjustments are local to the face
+        ROI, so only that region goes to the GPU. The subtle vignette stays on
+        the CPU path where cv2 multiply is already efficient.
+        """
         cp = self._cupy
         try:
-            bgr = frame[:, :, :3]
-            # Single upload to GPU
-            f_gpu = cp.asarray(bgr, dtype=cp.float32)
+            bbox = self._face_bbox
+            mask = self._face_mask
+            if bbox is None or mask is None:
+                if self._edge_darken > 0:
+                    return self._apply_edge_darken(frame, width, height)
+                return frame
 
-            # Enhance on GPU
-            if self._enhance > 0 and self._face_mask is not None:
+            x, y, w, h = bbox
+            pad = 20
+            y1, y2 = max(0, y - pad), min(height, y + h + pad)
+            x1, x2 = max(0, x - pad), min(width, x + w + pad)
+            if x2 <= x1 or y2 <= y1:
+                if self._edge_darken > 0:
+                    return self._apply_edge_darken(frame, width, height)
+                return frame
+
+            roi = frame[y1:y2, x1:x2, :3]
+            roi_gpu = cp.asarray(roi, dtype=cp.float32)
+            roi_mask = mask[y1:y2, x1:x2]
+
+            if self._enhance > 0:
                 intensity = self._enhance
-                mask_gpu = cp.asarray(self._face_mask, dtype=cp.float32)[:, :, cp.newaxis] / 255.0 * intensity
-
-                enhanced = (f_gpu - 128) * (1.0 + intensity * 0.2) + 128 + intensity * 15
-                enhanced[:, :, 2] += intensity * 8       # Red warmth
-                enhanced[:, :, 1] += intensity * 8 * 0.3  # Green warmth
+                mask_gpu = cp.asarray(roi_mask, dtype=cp.float32)[:, :, cp.newaxis] / 255.0 * intensity
+                enhanced = (roi_gpu - 128) * (1.0 + intensity * 0.2) + 128 + intensity * 15
+                enhanced[:, :, 2] += intensity * 8
+                enhanced[:, :, 1] += intensity * 8 * 0.3
                 cp.clip(enhanced, 0, 255, out=enhanced)
+                roi_gpu = roi_gpu * (1 - mask_gpu) + enhanced * mask_gpu
 
-                f_gpu = f_gpu * (1 - mask_gpu) + enhanced * mask_gpu
-
-            # Sharpen on GPU (unsharp mask approximation)
-            if self._sharpen > 0 and self._face_mask is not None and self._face_bbox is not None:
+            if self._sharpen > 0:
                 intensity = self._sharpen
-                x, y, w, h = self._face_bbox
-                pad = 10
-                y1, y2 = max(0, y - pad), min(height, y + h + pad)
-                x1, x2 = max(0, x - pad), min(width, x + w + pad)
-
-                # Simple high-pass sharpen on ROI
-                roi = f_gpu[y1:y2, x1:x2]
-                # Average as blur approximation (fast on GPU)
-                blurred = cp.mean(roi.reshape(-1, roi.shape[-1]), axis=0)
+                blurred = cp.mean(roi_gpu.reshape(-1, roi_gpu.shape[-1]), axis=0)
                 amount = 0.5 + intensity * 1.5
-                roi_sharp = roi + (roi - blurred) * amount * 0.1
-                mask_roi = cp.asarray(self._face_mask[y1:y2, x1:x2], dtype=cp.float32)[:, :, cp.newaxis] / 255.0 * intensity
-                f_gpu[y1:y2, x1:x2] = roi * (1 - mask_roi) + cp.clip(roi_sharp, 0, 255) * mask_roi
+                roi_sharp = roi_gpu + (roi_gpu - blurred) * amount * 0.1
+                mask_gpu = cp.asarray(roi_mask, dtype=cp.float32)[:, :, cp.newaxis] / 255.0 * intensity
+                roi_gpu = roi_gpu * (1 - mask_gpu) + cp.clip(roi_sharp, 0, 255) * mask_gpu
 
-            # Vignette on GPU
+            frame[y1:y2, x1:x2, :3] = cp.asnumpy(cp.clip(roi_gpu, 0, 255).astype(cp.uint8))
             if self._edge_darken > 0:
-                if self._vignette_cache is None or self._vignette_size != (width, height):
-                    self._build_vignette_cache(width, height)
-                vig = cp.asarray(self._vignette_cache)
-                v_scaled = (1.0 - self._edge_darken) + self._edge_darken * vig
-                f_gpu = f_gpu * v_scaled[:, :, cp.newaxis]
-
-            # Single download from GPU
-            frame[:, :, :3] = cp.asnumpy(cp.clip(f_gpu, 0, 255).astype(cp.uint8))
+                frame = self._apply_edge_darken(frame, width, height)
             return frame
 
         except Exception as e:

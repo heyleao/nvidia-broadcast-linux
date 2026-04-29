@@ -113,13 +113,21 @@ class ArchSupportTests(unittest.TestCase):
         with mock.patch("nvbroadcast.core.constants.CONFIG_DIR", config_dir):
             self.assertEqual(get_trt_cache_dir(1), config_dir / "trt_cache" / "gpu1")
 
-    def test_legacy_tray_disabled_by_default(self):
+    def test_legacy_tray_enabled_by_default_outside_kde(self):
         with mock.patch.dict("os.environ", {}, clear=False):
-            self.assertFalse(legacy_tray_enabled())
+            self.assertTrue(legacy_tray_enabled())
 
     def test_legacy_tray_can_be_explicitly_enabled(self):
         with mock.patch.dict("os.environ", {"NVBROADCAST_ENABLE_LEGACY_TRAY": "1"}, clear=False):
             self.assertTrue(legacy_tray_enabled())
+
+    def test_legacy_tray_can_be_explicitly_disabled(self):
+        with mock.patch.dict("os.environ", {"NVBROADCAST_ENABLE_LEGACY_TRAY": "0"}, clear=False):
+            self.assertFalse(legacy_tray_enabled())
+
+    def test_legacy_tray_disabled_on_kde_by_default(self):
+        with mock.patch.dict("os.environ", {"XDG_CURRENT_DESKTOP": "KDE"}, clear=False):
+            self.assertFalse(legacy_tray_enabled())
 
 
 if __name__ == "__main__":

@@ -33,9 +33,30 @@ def legacy_tray_enabled() -> bool:
     uses a GTK3 AppIndicator bridge, which can terminate startup without a
     Python traceback on some Linux desktops. Keep it opt-in until it is
     replaced with a native GTK4/KStatusNotifier-safe path.
+
+    Behavior:
+    - explicit env override always wins
+    - KDE/Plasma sessions default to disabled for safety
+    - other Linux desktops keep the previous default-enabled behavior to avoid
+      silently removing tray/minimize behavior for working installs
     """
     value = os.getenv("NVBROADCAST_ENABLE_LEGACY_TRAY", "").strip().lower()
-    return value in {"1", "true", "yes", "on"}
+    if value:
+        return value in {"1", "true", "yes", "on"}
+
+    desktop = " ".join(
+        filter(
+            None,
+            (
+                os.getenv("XDG_CURRENT_DESKTOP", ""),
+                os.getenv("DESKTOP_SESSION", ""),
+                "KDE" if os.getenv("KDE_FULL_SESSION") else "",
+            ),
+        )
+    ).lower()
+    if "kde" in desktop or "plasma" in desktop:
+        return False
+    return True
 
 
 def linux_multiarch_triplet() -> str:

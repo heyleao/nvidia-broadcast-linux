@@ -1035,7 +1035,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             unsupported = self._app.dependency_installer.unsupported_reason_for_mode(mode_key)
             missing = self._app.dependency_installer.missing_for_mode(mode_key)
             if unsupported:
-                if mode_key in ("zeus", "killer") and not supports_tensorrt_python():
+                if mode_key in ("zeus", "killer") and not has_trt and not supports_tensorrt_python():
                     label += " (requires Python 3.8-3.13)"
                 else:
                     label += " (not available on this system)"

@@ -8,7 +8,6 @@ and saves complete transcript at meeting end.
 import os
 import re
 import importlib.util
-import sys
 import time
 import threading
 import warnings
@@ -18,6 +17,8 @@ from dataclasses import dataclass
 from multiprocessing import get_context
 
 import numpy as np
+
+from nvbroadcast.core.platform import supports_openai_whisper_python
 
 
 _WORKER_BACKEND = ""
@@ -38,30 +39,14 @@ def _normalize_backend_preference(value: str | None) -> str:
     return "auto"
 
 
-def _supports_openai_whisper_backend(
-    version_info: tuple[int, int] | None = None,
-) -> bool:
-    if version_info is None:
-        current = sys.version_info
-        if hasattr(current, "major") and hasattr(current, "minor"):
-            version_info = (current.major, current.minor)
-        else:
-            version_info = tuple(current[:2])
-    elif hasattr(version_info, "major") and hasattr(version_info, "minor"):
-        version_info = (version_info.major, version_info.minor)
-    # openai-whisper imports numba/llvmlite at module import time. On Python
-    # 3.14, users can still have incompatible system-site installations visible
-    # through the venv, so keep the fallback disabled there and prefer
-    # faster-whisper exclusively.
-    return version_info < (3, 14)
-
-
 def _backend_candidates(preference: str = "auto") -> list[str]:
     preference = _normalize_backend_preference(preference)
     if preference == "faster-whisper":
         return ["faster-whisper"]
     if preference == "whisper":
         return ["whisper"]
+    if not supports_openai_whisper_python():
+        return ["faster-whisper"]
     return ["faster-whisper", "whisper"]
 
 
@@ -69,7 +54,7 @@ def _has_supported_backend(preference: str = "auto") -> bool:
     for backend in _backend_candidates(preference):
         if backend == "faster-whisper" and _module_spec_exists("faster_whisper"):
             return True
-        if backend == "whisper" and _supports_openai_whisper_backend() and _module_spec_exists("whisper"):
+        if backend == "whisper" and _module_spec_exists("whisper"):
             return True
     return False
 
@@ -79,7 +64,7 @@ def _missing_backend_help(preference: str = "auto") -> str:
     if preference == "whisper":
         return (
             "Run: pip install openai-whisper  "
-            "(supported Python versions only; startup keeps it isolated from the GUI process)"
+            "(advanced optional backend; startup keeps it isolated from the GUI process)"
         )
     if preference == "faster-whisper":
         return "Run: pip install faster-whisper ctranslate2 huggingface-hub httpx tokenizers soundfile"
@@ -124,8 +109,8 @@ def _init_transcriber_worker(model_size: str, device: str, backend_preference: s
                 raise
             pass
 
-    if not _supports_openai_whisper_backend():
-        raise ImportError("openai-whisper backend disabled on Python 3.14+")
+    if backend_preference == "auto" and not supports_openai_whisper_python():
+        raise ImportError("openai-whisper automatic fallback disabled on Python 3.14+")
 
     if backend_preference not in {"auto", "whisper"}:
         raise ImportError(f"Unsupported transcription backend preference: {backend_preference}")

@@ -12,6 +12,8 @@ from nvbroadcast.core.platform import (
     has_tensorrt_runtime,
     legacy_tray_enabled,
     linux_multiarch_triplet,
+    python_runtime_advisory,
+    supports_openai_whisper_python,
     supports_tensorrt_python,
     tensorrt_python_unsupported_reason,
 )
@@ -58,10 +60,21 @@ class ArchSupportTests(unittest.TestCase):
     def test_tensorrt_python_support_range(self):
         self.assertTrue(supports_tensorrt_python((3, 13)))
         self.assertFalse(supports_tensorrt_python((3, 14)))
+        self.assertTrue(supports_openai_whisper_python((3, 13)))
+        with mock.patch("importlib.metadata.version", side_effect=Exception("missing")):
+            self.assertFalse(supports_openai_whisper_python((3, 14)))
+
+    def test_openai_whisper_python_support_recovers_with_compatible_native_stack(self):
+        with mock.patch("importlib.metadata.version", side_effect=lambda name: {
+            "numba": "0.63.0b1",
+            "llvmlite": "0.46.0b1",
+        }[name]):
+            self.assertTrue(supports_openai_whisper_python((3, 14)))
 
     def test_tensorrt_modes_report_python_version_unsupported(self):
         installer = DependencyInstaller()
-        with mock.patch("nvbroadcast.core.dependency_installer.supports_tensorrt_python", return_value=False), \
+        with mock.patch("nvbroadcast.core.dependency_installer.has_tensorrt_runtime", return_value=False), \
+             mock.patch("nvbroadcast.core.dependency_installer.supports_tensorrt_python", return_value=False), \
              mock.patch(
                  "nvbroadcast.core.dependency_installer.tensorrt_python_unsupported_reason",
                  return_value=tensorrt_python_unsupported_reason((3, 14)),
@@ -128,6 +141,22 @@ class ArchSupportTests(unittest.TestCase):
     def test_legacy_tray_disabled_on_kde_by_default(self):
         with mock.patch.dict("os.environ", {"XDG_CURRENT_DESKTOP": "KDE"}, clear=False):
             self.assertFalse(legacy_tray_enabled())
+
+    def test_python_runtime_advisory_describes_reduced_paths(self):
+        with mock.patch("importlib.metadata.version", side_effect=Exception("missing")):
+            notice = python_runtime_advisory((3, 14), has_trt_runtime=False)
+        self.assertIsNotNone(notice)
+        key, title, body = notice
+        self.assertEqual(key, "python-runtime-3.14")
+        self.assertIn("Python 3.14", title)
+        self.assertIn("Zeus and Killer", body)
+        self.assertIn("faster-whisper", body)
+
+    def test_python_runtime_advisory_mentions_installed_tensorrt_runtime(self):
+        with mock.patch("importlib.metadata.version", side_effect=Exception("missing")):
+            notice = python_runtime_advisory((3, 14), has_trt_runtime=True)
+        self.assertIsNotNone(notice)
+        self.assertIn("already installed", notice[2])
 
 
 if __name__ == "__main__":

@@ -29,6 +29,7 @@ from nvbroadcast.core.platform import (
     IS_ARM64,
     IS_LINUX,
     has_tensorrt_runtime,
+    supports_openai_whisper_python,
     supports_linux_gpu_stack,
     supports_tensorrt_python,
     tensorrt_python_unsupported_reason,
@@ -54,7 +55,7 @@ def _has_whisper() -> bool:
     # 3.14+, a visible but incompatible system-site install can segfault during
     # an availability probe, so keep this check import-free and treat the
     # fallback backend as unavailable there.
-    if sys.version_info >= (3, 14):
+    if not supports_openai_whisper_python():
         return False
 
     try:
@@ -220,7 +221,11 @@ class DependencyInstaller(GObject.Object):
             and mode_key in ("doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer")
         ):
             return "GPU CUDA and TensorRT modes are not available on Linux arm64 yet. Use CPU modes for now."
-        if mode_key in ("zeus", "killer") and not supports_tensorrt_python():
+        if (
+            mode_key in ("zeus", "killer")
+            and not has_tensorrt_runtime()
+            and not supports_tensorrt_python()
+        ):
             return (
                 f"{tensorrt_python_unsupported_reason()} "
                 "Use DocZeus or the CUDA modes instead."

@@ -9,15 +9,60 @@ Uses MediaPipe Face Detection (Tasks API) for real-time face tracking,
 with exponential moving average smoothing for stable framing.
 """
 
+import importlib
+import os
+import subprocess
+import sys
 from pathlib import Path
 
 import numpy as np
 import cv2
-import mediapipe as mp
-from mediapipe.tasks import python as mp_python
-from mediapipe.tasks.python import vision as mp_vision
 
 _MODELS_DIR = Path(__file__).parent.parent.parent.parent / "models"
+_MEDIAPIPE_IMPORT_ERROR: str | None = None
+_MEDIAPIPE_READY: bool | None = None
+
+
+def _probe_mediapipe_runtime() -> tuple[bool, str]:
+    env = dict(os.environ)
+    env.setdefault("MPLBACKEND", "Agg")
+    code = (
+        "import mediapipe as mp\n"
+        "from mediapipe.tasks import python as mp_python\n"
+        "from mediapipe.tasks.python import vision as mp_vision\n"
+        "print('ok')\n"
+    )
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            env=env,
+        )
+    except Exception as exc:
+        return False, str(exc)
+    if result.returncode == 0:
+        return True, ""
+    detail = (result.stderr or result.stdout or "").strip()
+    return False, detail[:300] or f"exit code {result.returncode}"
+
+
+def _load_mediapipe():
+    global _MEDIAPIPE_IMPORT_ERROR, _MEDIAPIPE_READY
+    if _MEDIAPIPE_READY is False:
+        raise RuntimeError(_MEDIAPIPE_IMPORT_ERROR or "MediaPipe runtime unavailable")
+    if _MEDIAPIPE_READY is None:
+        ok, detail = _probe_mediapipe_runtime()
+        if not ok:
+            _MEDIAPIPE_READY = False
+            _MEDIAPIPE_IMPORT_ERROR = detail or "MediaPipe import probe failed"
+            raise RuntimeError(_MEDIAPIPE_IMPORT_ERROR)
+        _MEDIAPIPE_READY = True
+    mp = importlib.import_module("mediapipe")
+    mp_python = importlib.import_module("mediapipe.tasks.python")
+    mp_vision = importlib.import_module("mediapipe.tasks.python.vision")
+    return mp, mp_python, mp_vision
 
 
 class AutoFrame:
@@ -44,6 +89,9 @@ class AutoFrame:
         self._smooth_zoom = 1.0
         self._no_face_frames = 0
         self._timestamp_ms = 0
+        self._mp = None
+        self._mp_python = None
+        self._mp_vision = None
 
     @property
     def available(self) -> bool:
@@ -93,15 +141,16 @@ class AutoFrame:
                 return False
 
         try:
-            base_options = mp_python.BaseOptions(
+            self._mp, self._mp_python, self._mp_vision = _load_mediapipe()
+            base_options = self._mp_python.BaseOptions(
                 model_asset_path=str(model_path),
             )
-            options = mp_vision.FaceDetectorOptions(
+            options = self._mp_vision.FaceDetectorOptions(
                 base_options=base_options,
-                running_mode=mp_vision.RunningMode.VIDEO,
+                running_mode=self._mp_vision.RunningMode.VIDEO,
                 min_detection_confidence=0.5,
             )
-            self._detector = mp_vision.FaceDetector.create_from_options(options)
+            self._detector = self._mp_vision.FaceDetector.create_from_options(options)
             self._initialized = True
             print("[NVIDIA Broadcast] Face detection initialized")
             return True
@@ -146,7 +195,7 @@ class AutoFrame:
         """Detect the primary face. Returns (center_x, center_y) normalized [0,1]."""
         try:
             rgb = cv2.cvtColor(frame, cv2.COLOR_BGRA2RGB)
-            mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+            mp_image = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=rgb)
 
             self._timestamp_ms += 33  # ~30fps
             result = self._detector.detect_for_video(mp_image, self._timestamp_ms)

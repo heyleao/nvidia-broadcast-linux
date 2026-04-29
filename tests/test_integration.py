@@ -3,6 +3,7 @@
 import subprocess
 import time
 import os
+import sys
 import numpy as np
 
 
@@ -77,15 +78,30 @@ def test_video_effects_replace():
 
 def test_autoframe():
     """Test auto-frame face tracking."""
-    from nvbroadcast.video.autoframe import AutoFrame
-    af = AutoFrame()
-    assert af.initialize()
-    af.enabled = True
-    af.zoom_level = 1.5
-    frame = np.random.randint(0, 255, (720, 1280, 4), dtype=np.uint8).tobytes()
-    result = af.process_frame(frame, 1280, 720)
-    assert len(result) == len(frame)
-    af.cleanup()
+    code = r"""
+import numpy as np
+from nvbroadcast.video.autoframe import AutoFrame
+af = AutoFrame()
+assert af.initialize()
+af.enabled = True
+af.zoom_level = 1.5
+frame = np.random.randint(0, 255, (720, 1280, 4), dtype=np.uint8).tobytes()
+result = af.process_frame(frame, 1280, 720)
+assert len(result) == len(frame)
+af.cleanup()
+print("OK")
+"""
+    env = dict(os.environ)
+    env["PYTHONPATH"] = f"src:{env.get('PYTHONPATH', '')}".rstrip(":")
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=os.getcwd(),
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
+    assert "OK" in result.stdout
 
 
 def test_audio_denoise():

@@ -10,6 +10,14 @@ trap 'echo ""; echo "ERROR: Installation failed at line $LINENO (exit code $?)";
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_PREFIX="${HOME}/.local"
 VENV_DIR="${SCRIPT_DIR}/.venv"
+APP_VERSION="$(SCRIPT_DIR="$SCRIPT_DIR" python3 - <<'PY' 2>/dev/null || echo unknown
+from pathlib import Path
+import os
+import tomllib
+data = tomllib.loads((Path(os.environ["SCRIPT_DIR"]) / "pyproject.toml").read_text())
+print(data.get("project", {}).get("version", "unknown"))
+PY
+)"
 
 echo "========================================="
 echo "  NVIDIA Broadcast for Linux"
@@ -270,6 +278,27 @@ fi
 echo ""
 echo "All requirements met. Proceeding with installation..."
 
+PY_RUNTIME_NOTICE="$(
+PYTHONPATH="$SCRIPT_DIR/src" python3 - <<'PY' 2>/dev/null || true
+from nvbroadcast.core.platform import python_runtime_advisory
+notice = python_runtime_advisory()
+if notice:
+    _, title, body = notice
+    print(title)
+    print(body)
+PY
+)"
+
+if [ -n "$PY_RUNTIME_NOTICE" ]; then
+    echo ""
+    echo "NOTICE:"
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        echo "  $line"
+    done <<< "$PY_RUNTIME_NOTICE"
+    echo ""
+fi
+
 # ─── Step 1: System Dependencies ────────────────────────────────────────────
 
 echo ""
@@ -443,6 +472,9 @@ echo "────────────────────────�
 echo ""
 echo "  These unlock premium features. You can install them now or later."
 echo "  If skipped, the app will prompt when you select a mode that needs them."
+if [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -ge 14 ]; then
+    echo "  Python $PY_VER note: some premium paths use safer defaults on this interpreter."
+fi
 echo ""
 
 # CuPy (GPU compositing + fused kernel)
@@ -736,7 +768,7 @@ echo "Autostart entry installed (launches on login)"
 
 echo ""
 echo "========================================="
-echo "  Installation Complete! v1.1.1"
+echo "  Installation Complete! v$APP_VERSION"
 echo "  NVIDIA Broadcast for Linux"
 echo "  by doczeus | AI Powered"
 echo "========================================="
@@ -749,7 +781,15 @@ if [ "$TRT_INSTALLED" = true ]; then
 elif [ "$TRT_SUPPORTED" = true ]; then
     echo "  TensorRT: NO (install later for Zeus/Killer optimization)"
 else
-    echo "  TensorRT: UNSUPPORTED ON PYTHON $PY_VER (requires Python 3.8-3.13)"
+echo "  TensorRT: UNSUPPORTED ON PYTHON $PY_VER (requires Python 3.8-3.13)"
+fi
+if [ -n "$PY_RUNTIME_NOTICE" ]; then
+    echo ""
+    echo "  Python runtime notice:"
+    while IFS= read -r line; do
+        [ -n "$line" ] || continue
+        echo "    $line"
+    done <<< "$PY_RUNTIME_NOTICE"
 fi
 echo ""
 echo "  Available modes:"
@@ -766,7 +806,7 @@ fi
 echo "    CUDA Max/Balanced/Perf — standard GPU modes"
 echo "    CPU Quality/Light/Low  — CPU fallback"
 echo ""
-echo "  v1.1.1 patch highlights:"
+echo "  Recent patch highlights:"
 echo "    Virtual Camera Stability — safer Linux loopback sink startup"
 echo "    Lower Live Lag           — shared face landmarks and ROI relighting"
 echo "    Better Replace Edges     — tighter shoulders, hair, and arm gaps"

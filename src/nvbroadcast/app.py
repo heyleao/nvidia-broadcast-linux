@@ -45,6 +45,7 @@ from nvbroadcast.core.platform import (
     IS_LINUX,
     IS_ARM64,
     legacy_tray_enabled,
+    python_runtime_advisory,
 )
 from nvbroadcast.core.resources import find_ui_css
 from nvbroadcast.core.dependency_installer import DependencyInstaller
@@ -234,6 +235,7 @@ class NVBroadcastApp(Adw.Application):
 
         self._window.set_visible(True)
         self._window.present()
+        self._maybe_show_python_runtime_notice()
 
     def _on_setup_complete(self, wizard, profile_name, gpu_index, compositing):
         """Called when first-run wizard finishes."""
@@ -399,6 +401,19 @@ class NVBroadcastApp(Adw.Application):
                 print(f"[NV Broadcast] Meeting transcription preload failed: {e}")
 
         threading.Thread(target=_init, daemon=True).start()
+
+    def _maybe_show_python_runtime_notice(self):
+        if self._window is None:
+            return
+        notice = python_runtime_advisory()
+        if notice is None:
+            return
+        notice_key, title, reason = notice
+        if self.config.last_python_runtime_notice == notice_key:
+            return
+        self.config.last_python_runtime_notice = notice_key
+        save_config(self.config)
+        self._window.show_advisory(notice_key, title, reason)
 
     def _maybe_check_for_updates(self):
         if self._window is None or not should_check_for_updates(self.config):

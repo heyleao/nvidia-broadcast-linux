@@ -12,6 +12,7 @@ import shutil
 import sys
 import ctypes
 import ctypes.util
+import importlib.metadata
 from pathlib import Path
 
 IS_LINUX = platform.system() == "Linux"
@@ -24,6 +25,20 @@ TENSORRT_LIB_MODULES = (
     "tensorrt_cu12_libs",
     "tensorrt_cu13_libs",
 )
+
+
+def _coerce_version_info(
+    version_info: tuple[int, int] | None = None,
+) -> tuple[int, int]:
+    """Normalize version_info-like values to a major/minor tuple."""
+    if version_info is None:
+        current = sys.version_info
+        if hasattr(current, "major") and hasattr(current, "minor"):
+            return (current.major, current.minor)
+        return tuple(current[:2])
+    if hasattr(version_info, "major") and hasattr(version_info, "minor"):
+        return (version_info.major, version_info.minor)
+    return tuple(version_info[:2])
 
 
 def legacy_tray_enabled() -> bool:
@@ -73,21 +88,91 @@ def supports_linux_gpu_stack() -> bool:
 
 def supports_tensorrt_python(version_info: tuple[int, int] | None = None) -> bool:
     """Return whether NVIDIA publishes TensorRT Python wheels for this version."""
-    if version_info is None:
-        version_info = (sys.version_info.major, sys.version_info.minor)
-    major, minor = version_info
+    major, minor = _coerce_version_info(version_info)
     return major == 3 and 8 <= minor <= 13
 
 
 def tensorrt_python_unsupported_reason(version_info: tuple[int, int] | None = None) -> str:
     """Human-readable reason when TensorRT wheels are unavailable for Python."""
-    if version_info is None:
-        version_info = (sys.version_info.major, sys.version_info.minor)
-    major, minor = version_info
+    major, minor = _coerce_version_info(version_info)
     return (
         "TensorRT Python wheels are currently available only for Python 3.8-3.13 "
         f"on Linux x86_64. This system is running Python {major}.{minor}."
     )
+
+
+def supports_openai_whisper_python(version_info: tuple[int, int] | None = None) -> bool:
+    """Return whether openai-whisper is safe to auto-probe in the GUI process."""
+    if _coerce_version_info(version_info) < (3, 14):
+        return True
+
+    try:
+        from packaging.version import InvalidVersion, Version
+    except Exception:
+        return False
+
+    try:
+        numba_version = Version(importlib.metadata.version("numba"))
+        llvmlite_version = Version(importlib.metadata.version("llvmlite"))
+    except (importlib.metadata.PackageNotFoundError, InvalidVersion, Exception):
+        return False
+
+    # Numba announced Python 3.14 support in the 0.63 / 0.46 line. Until that
+    # compatible pair is actually present, keep the GUI-startup auto-probe on
+    # the safer faster-whisper path.
+    return numba_version >= Version("0.63.0b1") and llvmlite_version >= Version("0.46.0b1")
+
+
+def python_runtime_advisory(
+    version_info: tuple[int, int] | None = None,
+    has_trt_runtime: bool | None = None,
+) -> tuple[str, str, str] | None:
+    """Return a one-time advisory for Python runtimes with reduced feature paths.
+
+    The goal is not to say the interpreter is unsupported. The goal is to tell
+    users which optional premium paths are reduced today and what the app will
+    do instead.
+    """
+    major, minor = _coerce_version_info(version_info)
+    if (major, minor) < (3, 14):
+        return None
+
+    if has_trt_runtime is None:
+        try:
+            has_trt_runtime = has_tensorrt_runtime()
+        except Exception:
+            has_trt_runtime = False
+
+    title = (
+        f"Python {major}.{minor} detected: some optional runtimes use safer defaults"
+    )
+    lines = []
+    if has_trt_runtime:
+        lines.append(
+            "TensorRT runtime is already installed, so Zeus and Killer can stay available."
+        )
+    else:
+        lines.append(
+            "Zeus and Killer TensorRT installs are reduced until NVIDIA ships matching Python wheels."
+        )
+    if supports_openai_whisper_python((major, minor)):
+        lines.append(
+            "Meeting transcription still works locally, and a compatible openai-whisper stack is allowed if installed."
+        )
+    else:
+        lines.append(
+            "Meeting transcription still works locally, but the app defaults to faster-whisper until a compatible numba/llvmlite stack is present."
+        )
+    lines.append(
+        "DocZeus, CUDA modes, CPU modes, and local meeting transcription remain available."
+    )
+    lines.append(
+        "Recommendation: Python 3.12 or 3.13 currently gives the broadest premium-feature compatibility."
+    )
+    lines.append(
+        "As vendor libraries catch up, compatible installed runtimes will be picked up automatically."
+    )
+    return (f"python-runtime-{major}.{minor}", title, "\n".join(lines))
 
 
 def has_nvidia_gpu() -> bool:

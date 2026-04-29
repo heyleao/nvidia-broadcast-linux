@@ -9,6 +9,10 @@ Running 3 separate MediaPipe FaceLandmarkers (beautify, eye contact, relighting)
 costs ~60-90ms per frame. Sharing one instance reduces it to ~20-30ms.
 """
 
+import importlib
+import os
+import subprocess
+import sys
 import threading
 import time
 import urllib.request
@@ -17,11 +21,6 @@ from typing import Optional
 
 import numpy as np
 import cv2
-import mediapipe as mp
-from mediapipe.tasks.python import BaseOptions
-from mediapipe.tasks.python.vision import (
-    FaceLandmarker, FaceLandmarkerOptions, RunningMode,
-)
 
 _MODELS_DIR = Path(__file__).parent.parent.parent.parent / "models"
 _FACE_MODEL = "face_landmarker.task"
@@ -29,9 +28,60 @@ _FACE_MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/"
     "face_landmarker/face_landmarker/float16/latest/face_landmarker.task"
 )
+_MEDIAPIPE_IMPORT_ERROR: str | None = None
+_MEDIAPIPE_READY: bool | None = None
 
 # Singleton instance
 _instance: Optional["SharedFaceLandmarker"] = None
+
+
+def _probe_mediapipe_runtime() -> tuple[bool, str]:
+    env = dict(os.environ)
+    env.setdefault("MPLBACKEND", "Agg")
+    code = (
+        "import mediapipe as mp\n"
+        "from mediapipe.tasks.python import BaseOptions\n"
+        "from mediapipe.tasks.python.vision import FaceLandmarker, FaceLandmarkerOptions, RunningMode\n"
+        "print('ok')\n"
+    )
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=15,
+            env=env,
+        )
+    except Exception as exc:
+        return False, str(exc)
+    if result.returncode == 0:
+        return True, ""
+    detail = (result.stderr or result.stdout or "").strip()
+    return False, detail[:300] or f"exit code {result.returncode}"
+
+
+def _load_mediapipe():
+    global _MEDIAPIPE_IMPORT_ERROR, _MEDIAPIPE_READY
+    if _MEDIAPIPE_READY is False:
+        raise RuntimeError(_MEDIAPIPE_IMPORT_ERROR or "MediaPipe runtime unavailable")
+    if _MEDIAPIPE_READY is None:
+        ok, detail = _probe_mediapipe_runtime()
+        if not ok:
+            _MEDIAPIPE_READY = False
+            _MEDIAPIPE_IMPORT_ERROR = detail or "MediaPipe import probe failed"
+            raise RuntimeError(_MEDIAPIPE_IMPORT_ERROR)
+        _MEDIAPIPE_READY = True
+
+    mp = importlib.import_module("mediapipe")
+    mp_python = importlib.import_module("mediapipe.tasks.python")
+    mp_vision = importlib.import_module("mediapipe.tasks.python.vision")
+    return (
+        mp,
+        mp_python.BaseOptions,
+        mp_vision.FaceLandmarker,
+        mp_vision.FaceLandmarkerOptions,
+        mp_vision.RunningMode,
+    )
 
 
 def get_shared_landmarker() -> "SharedFaceLandmarker":
@@ -58,6 +108,7 @@ class SharedFaceLandmarker:
         self._lock = threading.Lock()
         self._detect_lock = threading.Lock()
         self._async_busy = False
+        self._mp = None
         self._init()
 
     def _init(self):
@@ -71,6 +122,13 @@ class SharedFaceLandmarker:
                 print(f"[FaceLandmarks] Download failed: {e}")
                 return
         try:
+            (
+                self._mp,
+                BaseOptions,
+                FaceLandmarker,
+                FaceLandmarkerOptions,
+                RunningMode,
+            ) = _load_mediapipe()
             opts = FaceLandmarkerOptions(
                 base_options=BaseOptions(model_asset_path=str(model_path)),
                 running_mode=RunningMode.VIDEO,
@@ -192,7 +250,7 @@ class SharedFaceLandmarker:
 
         rgb = cv2.cvtColor(scaled, cv2.COLOR_BGRA2RGB)
         ts = int(time.monotonic() * 1000)
-        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+        mp_image = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=rgb)
 
         try:
             result = self._landmarker.detect_for_video(mp_image, ts)

@@ -61,8 +61,14 @@ class DependencyInstallerTests(unittest.TestCase):
             raise AssertionError(f"Unexpected spec lookup: {name}")
 
         with mock.patch.object(dependency_installer.importlib.util, "find_spec", side_effect=fake_find_spec), \
-             mock.patch.object(dependency_installer.sys, "version_info", (3, 14, 0, "final", 0)):
+             mock.patch.object(dependency_installer, "supports_openai_whisper_python", return_value=False):
             self.assertFalse(dependency_installer._has_whisper())
+
+    def test_zeus_mode_allowed_when_tensorrt_runtime_already_present(self):
+        installer = dependency_installer.DependencyInstaller()
+        with mock.patch.object(dependency_installer, "has_tensorrt_runtime", return_value=True), \
+             mock.patch.object(dependency_installer, "supports_tensorrt_python", return_value=False):
+            self.assertIsNone(installer.unsupported_reason_for_mode("zeus"))
 
     def test_whisper_package_spec_installs_httpx(self):
         install_args = dependency_installer.PACKAGE_SPECS["whisper"]["install_args"]

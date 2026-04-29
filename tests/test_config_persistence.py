@@ -14,6 +14,7 @@ class ConfigPersistenceTests(unittest.TestCase):
     def test_roundtrip_persists_speaker_and_profile(self):
         config = AppConfig()
         config.current_profile = "Meeting"
+        config.last_python_runtime_notice = "python-runtime-3.14"
         config.auto_mode = True
         config.mode_key = "cpu_light"
         config.ui_card_expanded = {
@@ -40,6 +41,7 @@ class ConfigPersistenceTests(unittest.TestCase):
             loaded = _load_from_toml(path)
 
         self.assertEqual(loaded.current_profile, "Meeting")
+        self.assertEqual(loaded.last_python_runtime_notice, "python-runtime-3.14")
         self.assertTrue(loaded.auto_mode)
         self.assertEqual(loaded.mode_key, "cpu_light")
         self.assertEqual(loaded.ui_card_expanded, {
@@ -63,6 +65,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         existing.check_for_updates = False
         existing.last_update_check = 123
         existing.last_notified_version = "1.1.1"
+        existing.last_python_runtime_notice = "python-runtime-3.14"
         existing.compute_gpu = 2
         existing.auto_mode = True
         existing.current_profile = "Custom"
@@ -78,6 +81,7 @@ class ConfigPersistenceTests(unittest.TestCase):
         self.assertFalse(reset.check_for_updates)
         self.assertEqual(reset.last_update_check, 123)
         self.assertEqual(reset.last_notified_version, "1.1.1")
+        self.assertEqual(reset.last_python_runtime_notice, "python-runtime-3.14")
         self.assertEqual(reset.compute_gpu, 2)
         self.assertTrue(reset.auto_mode)
         self.assertEqual(reset.ui_card_expanded, {"background": True})

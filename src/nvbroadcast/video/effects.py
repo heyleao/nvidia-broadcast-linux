@@ -14,6 +14,8 @@ Supported models:
 import os
 import platform as _platform
 import json
+import subprocess
+import sys
 import tempfile
 
 # Force CUDA device ordering to match nvidia-smi (PCI bus ID order) — Linux only
@@ -210,6 +212,63 @@ def _replace_node_input(node, index: int, value: str) -> None:
     node.input[index] = value
 
 
+def _safe_infer_shapes(model, compat_dir: Path):
+    """Run ONNX shape inference out-of-process and fall back safely.
+
+    Native ONNX shape inference can abort the interpreter on some local builds
+    when operating on partially staticized graphs. The patched model is still
+    useful without inferred internal value_info shapes, so keep that model and
+    only enrich it when the native helper succeeds.
+    """
+    import onnx
+
+    compat_dir.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(
+        prefix="onnx-shape-in.",
+        suffix=".onnx",
+        dir=compat_dir,
+        delete=False,
+    ) as src_tmp, tempfile.NamedTemporaryFile(
+        prefix="onnx-shape-out.",
+        suffix=".onnx",
+        dir=compat_dir,
+        delete=False,
+    ) as out_tmp:
+        src_path = Path(src_tmp.name)
+        out_path = Path(out_tmp.name)
+
+    try:
+        onnx.save(model, str(src_path))
+        code = (
+            "import onnx, sys\n"
+            "model = onnx.load(sys.argv[1])\n"
+            "model = onnx.shape_inference.infer_shapes(model)\n"
+            "onnx.save(model, sys.argv[2])\n"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code, str(src_path), str(out_path)],
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+        if result.returncode != 0 or not out_path.exists() or out_path.stat().st_size == 0:
+            detail = (result.stderr or result.stdout or "").strip()
+            if detail:
+                print(f"[NV Broadcast] ONNX shape inference skipped: {detail[:240]}", flush=True)
+            return model
+        return onnx.load(str(out_path))
+    except Exception as exc:
+        print(f"[NV Broadcast] ONNX shape inference skipped: {exc}", flush=True)
+        return model
+    finally:
+        for path in (src_path, out_path):
+            try:
+                if path.exists():
+                    path.unlink()
+            except OSError:
+                pass
+
+
 def _prepare_rvm_tensorrt_model(model_path: Path,
                                 infer_shape: tuple[int, int] | None = None,
                                 downsample_ratio: float | None = None,
@@ -285,7 +344,7 @@ def _prepare_rvm_tensorrt_model(model_path: Path,
                     elif node.name == "Resize_306":
                         _replace_node_input(node, 3, "nvb_static_alpha_sizes")
 
-            model = onnx.shape_inference.infer_shapes(model)
+            model = _safe_infer_shapes(model, compat_dir)
 
         with tempfile.NamedTemporaryFile(
             prefix=compat_path.stem + ".",

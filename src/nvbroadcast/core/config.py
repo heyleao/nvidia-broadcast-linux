@@ -160,6 +160,7 @@ class AppConfig:
     check_for_updates: bool = True
     last_update_check: int = 0
     last_notified_version: str = ""
+    last_python_runtime_notice: str = ""
     first_run: bool = True  # Show setup wizard on first launch
     current_profile: str = "Default"
     ui_card_expanded: dict[str, bool] = field(default_factory=dict)
@@ -179,6 +180,7 @@ def build_default_config(existing: AppConfig | None = None) -> AppConfig:
     default.check_for_updates = existing.check_for_updates
     default.last_update_check = existing.last_update_check
     default.last_notified_version = existing.last_notified_version
+    default.last_python_runtime_notice = existing.last_python_runtime_notice
     default.compute_gpu = existing.compute_gpu
     default.auto_mode = existing.auto_mode
     default.ui_card_expanded = dict(existing.ui_card_expanded)
@@ -196,7 +198,8 @@ def _load_from_toml(filepath: Path) -> AppConfig:
               "auto_mode",
               "use_tensorrt", "use_fused_kernel", "use_nvdec",
               "auto_start", "minimize_on_close", "check_for_updates",
-              "last_update_check", "last_notified_version", "first_run",
+              "last_update_check", "last_notified_version",
+              "last_python_runtime_notice", "first_run",
               "current_profile"):
         if k in data:
             setattr(config, k, data[k])
@@ -307,6 +310,7 @@ def _config_to_toml(config: AppConfig) -> str:
         f"check_for_updates = {_bool(config.check_for_updates)}",
         f"last_update_check = {config.last_update_check}",
         f'last_notified_version = "{config.last_notified_version}"',
+        f'last_python_runtime_notice = "{config.last_python_runtime_notice}"',
         f"first_run = {_bool(config.first_run)}",
         f'current_profile = "{config.current_profile}"',
         "",

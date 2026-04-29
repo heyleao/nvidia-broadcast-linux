@@ -12,8 +12,8 @@ from nvbroadcast.ai.transcriber import (
     _has_supported_backend,
     _missing_backend_help,
     _normalize_backend_preference,
-    _supports_openai_whisper_backend,
 )
+from nvbroadcast.core.platform import supports_openai_whisper_python
 
 
 class MeetingTranscriberTests(unittest.TestCase):
@@ -25,10 +25,12 @@ class MeetingTranscriberTests(unittest.TestCase):
     def test_backend_candidates_respect_preference(self):
         self.assertEqual(_backend_candidates("whisper"), ["whisper"])
         self.assertEqual(_backend_candidates("faster-whisper"), ["faster-whisper"])
-        self.assertEqual(_backend_candidates("auto"), ["faster-whisper", "whisper"])
+        with mock.patch("nvbroadcast.ai.transcriber.supports_openai_whisper_python", return_value=True):
+            self.assertEqual(_backend_candidates("auto"), ["faster-whisper", "whisper"])
 
     def test_openai_whisper_backend_disabled_on_python_314(self):
-        self.assertFalse(_supports_openai_whisper_backend((3, 14)))
+        with mock.patch("importlib.metadata.version", side_effect=Exception("missing")):
+            self.assertFalse(supports_openai_whisper_python((3, 14)))
 
     def test_has_supported_backend_ignores_whisper_on_python_314(self):
         def fake_find_spec(name):
@@ -39,7 +41,7 @@ class MeetingTranscriberTests(unittest.TestCase):
             raise AssertionError(f"Unexpected spec lookup: {name}")
 
         with mock.patch("nvbroadcast.ai.transcriber.importlib.util.find_spec", side_effect=fake_find_spec), \
-             mock.patch("nvbroadcast.ai.transcriber.sys.version_info", (3, 14, 0, "final", 0)):
+             mock.patch("nvbroadcast.ai.transcriber.supports_openai_whisper_python", return_value=False):
             self.assertFalse(_has_supported_backend())
 
     def test_has_supported_backend_allows_whisper_preference_on_supported_python(self):
@@ -51,6 +53,18 @@ class MeetingTranscriberTests(unittest.TestCase):
             raise AssertionError(f"Unexpected spec lookup: {name}")
 
         with mock.patch("nvbroadcast.ai.transcriber.importlib.util.find_spec", side_effect=fake_find_spec):
+            self.assertTrue(_has_supported_backend("whisper"))
+
+    def test_has_supported_backend_allows_explicit_whisper_even_when_auto_fallback_disabled(self):
+        def fake_find_spec(name):
+            if name == "faster_whisper":
+                return None
+            if name == "whisper":
+                return object()
+            raise AssertionError(f"Unexpected spec lookup: {name}")
+
+        with mock.patch("nvbroadcast.ai.transcriber.importlib.util.find_spec", side_effect=fake_find_spec), \
+             mock.patch("nvbroadcast.ai.transcriber.supports_openai_whisper_python", return_value=False):
             self.assertTrue(_has_supported_backend("whisper"))
 
     def test_initialize_returns_false_without_supported_backend(self):

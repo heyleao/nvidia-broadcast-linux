@@ -5,6 +5,7 @@
 #
 """Platform detection — abstracts OS differences for cross-platform support."""
 
+import os
 import platform
 import subprocess
 import shutil
@@ -23,6 +24,18 @@ TENSORRT_LIB_MODULES = (
     "tensorrt_cu12_libs",
     "tensorrt_cu13_libs",
 )
+
+
+def legacy_tray_enabled() -> bool:
+    """Return whether the legacy GTK3 AppIndicator tray path is allowed.
+
+    NV Broadcast is a GTK4/libadwaita application. The current tray code still
+    uses a GTK3 AppIndicator bridge, which can terminate startup without a
+    Python traceback on some Linux desktops. Keep it opt-in until it is
+    replaced with a native GTK4/KStatusNotifier-safe path.
+    """
+    value = os.getenv("NVBROADCAST_ENABLE_LEGACY_TRAY", "").strip().lower()
+    return value in {"1", "true", "yes", "on"}
 
 
 def linux_multiarch_triplet() -> str:

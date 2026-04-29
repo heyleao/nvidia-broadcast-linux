@@ -40,7 +40,12 @@ from nvbroadcast.video.face_landmarks import get_shared_landmarker
 from nvbroadcast.video.perf_monitor import PerfMonitor
 from nvbroadcast.ai.transcriber import MeetingTranscriber, save_transcript
 from nvbroadcast.ai.summarizer import MeetingSummarizer
-from nvbroadcast.core.platform import IS_MACOS, IS_LINUX, IS_ARM64
+from nvbroadcast.core.platform import (
+    IS_MACOS,
+    IS_LINUX,
+    IS_ARM64,
+    legacy_tray_enabled,
+)
 from nvbroadcast.core.resources import find_ui_css
 from nvbroadcast.core.dependency_installer import DependencyInstaller
 from nvbroadcast.core.meeting_store import (
@@ -129,6 +134,7 @@ class NVBroadcastApp(Adw.Application):
         self._vcam_available = False
         self._mirror = True  # Default: mirror (like looking in a mirror)
         self._tray = None
+        self._legacy_tray_enabled = legacy_tray_enabled()
         self._vcam_consumers = 0  # Track virtual camera consumers
         self._streaming = False
         self._use_nvdec = self.config.use_nvdec
@@ -175,14 +181,22 @@ class NVBroadcastApp(Adw.Application):
             self._window.bind_dependency_installer(self._dependency_installer)
             self._window.load_meeting_sessions(self.list_meeting_sessions())
 
-            # System tray icon
-            try:
-                from nvbroadcast.ui.tray import TrayIcon
-                self._tray = TrayIcon(self)
-                if self._tray.available:
-                    print("[NV Broadcast] System tray icon active")
-            except Exception as e:
-                print(f"[NV Broadcast] Tray icon not available: {e}")
+            # Legacy GTK3 AppIndicator tray is opt-in only. Mixing GTK3 tray
+            # code into this GTK4 app can terminate startup natively on some
+            # Linux desktops without a Python traceback.
+            if self._legacy_tray_enabled:
+                try:
+                    from nvbroadcast.ui.tray import TrayIcon
+                    self._tray = TrayIcon(self)
+                    if self._tray.available:
+                        print("[NV Broadcast] System tray icon active")
+                except Exception as e:
+                    print(f"[NV Broadcast] Tray icon not available: {e}")
+            else:
+                print(
+                    "[NV Broadcast] Legacy tray integration disabled. "
+                    "Set NVBROADCAST_ENABLE_LEGACY_TRAY=1 to force-enable it."
+                )
 
             # Camera power save: poll for vcam consumers
             GLib.timeout_add(5000, self._check_vcam_consumers)
@@ -306,7 +320,7 @@ class NVBroadcastApp(Adw.Application):
         Stop the live pipeline first so closing the window always releases the
         camera instead of keeping a hidden capture session running.
         """
-        if self.config.minimize_on_close:
+        if self.config.minimize_on_close and self._tray and self._tray.available:
             if self._streaming:
                 self.stop_pipeline()
                 if self._window:
@@ -322,6 +336,8 @@ class NVBroadcastApp(Adw.Application):
             else:
                 print("[NV Broadcast] Pipeline stopped and app minimized to background")
             return True  # Prevent destruction
+        if self.config.minimize_on_close:
+            print("[NV Broadcast] No tray available; closing window will quit the app")
         return False  # Allow normal close
 
     def _check_vcam_consumers(self):

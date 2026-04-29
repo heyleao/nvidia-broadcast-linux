@@ -10,6 +10,7 @@ from nvbroadcast.core.platform import (
     get_trt_cache_dir,
     get_tensorrt_lib_dirs,
     has_tensorrt_runtime,
+    legacy_tray_enabled,
     linux_multiarch_triplet,
     supports_tensorrt_python,
     tensorrt_python_unsupported_reason,
@@ -111,6 +112,14 @@ class ArchSupportTests(unittest.TestCase):
         config_dir = Path("/tmp/nvbroadcast-test-config")
         with mock.patch("nvbroadcast.core.constants.CONFIG_DIR", config_dir):
             self.assertEqual(get_trt_cache_dir(1), config_dir / "trt_cache" / "gpu1")
+
+    def test_legacy_tray_disabled_by_default(self):
+        with mock.patch.dict("os.environ", {}, clear=False):
+            self.assertFalse(legacy_tray_enabled())
+
+    def test_legacy_tray_can_be_explicitly_enabled(self):
+        with mock.patch.dict("os.environ", {"NVBROADCAST_ENABLE_LEGACY_TRAY": "1"}, clear=False):
+            self.assertTrue(legacy_tray_enabled())
 
 
 if __name__ == "__main__":

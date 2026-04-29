@@ -60,7 +60,15 @@ cuda = [
     "nvidia-cuda-nvrtc-cu12",
     "onnxruntime-gpu>=1.16",
 ]
-meeting = ["openai-whisper>=20231117"]
+meeting = [
+    "faster-whisper",
+    "ctranslate2",
+    "huggingface-hub",
+    "httpx",
+    "tokenizers",
+    "soundfile",
+    'openai-whisper>=20231117; python_version < "3.14"',
+]
 maxine = ["nvidia-vfx"]
 tensorrt = ["tensorrt", "tensorrt-cu12", "onnx"]
 

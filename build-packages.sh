@@ -262,7 +262,7 @@ $PYTHON -m venv "$INSTALL_DIR/.venv" --system-site-packages 2>/dev/null || true
 source "$INSTALL_DIR/.venv/bin/activate"
 pip install --upgrade pip -q 2>/dev/null || true
 pip install -q "$INSTALL_DIR" 2>/dev/null || true
-pip install -q openai-whisper 2>/dev/null || true
+pip install -q --no-deps faster-whisper ctranslate2 huggingface-hub httpx tokenizers soundfile 2>/dev/null || true
 
 # CoreML for Apple Silicon
 if [ "$(uname -m)" = "arm64" ]; then

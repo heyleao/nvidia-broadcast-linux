@@ -116,7 +116,7 @@ if [ ! -d /opt/nvbroadcast/.venv ]; then
 fi
 /opt/nvbroadcast/.venv/bin/pip install --upgrade pip -q
 /opt/nvbroadcast/.venv/bin/pip install /opt/nvbroadcast -q
-/opt/nvbroadcast/.venv/bin/pip install openai-whisper -q 2>/dev/null || true
+/opt/nvbroadcast/.venv/bin/pip install --no-deps faster-whisper ctranslate2 huggingface-hub httpx tokenizers soundfile -q 2>/dev/null || true
 
 # Install CuPy if NVIDIA GPU present
 if command -v nvidia-smi &>/dev/null; then

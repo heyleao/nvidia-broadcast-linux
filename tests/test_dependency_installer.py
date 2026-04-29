@@ -34,27 +34,35 @@ from nvbroadcast.core import dependency_installer
 
 
 class DependencyInstallerTests(unittest.TestCase):
-    def test_has_whisper_requires_successful_import(self):
-        def fake_import(name):
-            if name == "faster_whisper":
-                raise ModuleNotFoundError("No module named 'httpx'")
-            if name == "whisper":
-                raise ModuleNotFoundError("No module named 'whisper'")
-            raise AssertionError(f"Unexpected import: {name}")
+    def test_has_whisper_requires_visible_backend_spec(self):
+        def fake_find_spec(name):
+            return None
 
-        with mock.patch.object(dependency_installer.importlib, "import_module", side_effect=fake_import):
+        with mock.patch.object(dependency_installer.importlib.util, "find_spec", side_effect=fake_find_spec):
             self.assertFalse(dependency_installer._has_whisper())
 
-    def test_has_whisper_accepts_fallback_backend(self):
-        def fake_import(name):
+    def test_has_whisper_accepts_faster_whisper_without_importing(self):
+        def fake_find_spec(name):
             if name == "faster_whisper":
-                raise ModuleNotFoundError("No module named 'httpx'")
+                return object()
+            if name == "whisper":
+                return None
+            raise AssertionError(f"Unexpected spec lookup: {name}")
+
+        with mock.patch.object(dependency_installer.importlib.util, "find_spec", side_effect=fake_find_spec):
+            self.assertTrue(dependency_installer._has_whisper())
+
+    def test_has_whisper_disables_openai_whisper_probe_on_python_314(self):
+        def fake_find_spec(name):
+            if name == "faster_whisper":
+                return None
             if name == "whisper":
                 return object()
-            raise AssertionError(f"Unexpected import: {name}")
+            raise AssertionError(f"Unexpected spec lookup: {name}")
 
-        with mock.patch.object(dependency_installer.importlib, "import_module", side_effect=fake_import):
-            self.assertTrue(dependency_installer._has_whisper())
+        with mock.patch.object(dependency_installer.importlib.util, "find_spec", side_effect=fake_find_spec), \
+             mock.patch.object(dependency_installer.sys, "version_info", (3, 14, 0, "final", 0)):
+            self.assertFalse(dependency_installer._has_whisper())
 
     def test_whisper_package_spec_installs_httpx(self):
         install_args = dependency_installer.PACKAGE_SPECS["whisper"]["install_args"]

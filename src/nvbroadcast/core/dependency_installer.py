@@ -13,6 +13,7 @@ back to GTK, and keeps the rest of the app usable while dependencies download.
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import re
 import subprocess
 import sys
@@ -43,12 +44,23 @@ def _has_cupy() -> bool:
 
 
 def _has_whisper() -> bool:
-    for module_name in ("faster_whisper", "whisper"):
-        try:
-            importlib.import_module(module_name)
+    try:
+        if importlib.util.find_spec("faster_whisper") is not None:
             return True
-        except Exception:
-            continue
+    except Exception:
+        pass
+
+    # openai-whisper imports numba/llvmlite at module import time. On Python
+    # 3.14+, a visible but incompatible system-site install can segfault during
+    # an availability probe, so keep this check import-free and treat the
+    # fallback backend as unavailable there.
+    if sys.version_info >= (3, 14):
+        return False
+
+    try:
+        return importlib.util.find_spec("whisper") is not None
+    except Exception:
+        return False
     return False
 
 

@@ -7,6 +7,8 @@ and saves complete transcript at meeting end.
 
 import os
 import re
+import importlib.util
+import sys
 import time
 import threading
 import warnings
@@ -22,6 +24,68 @@ _WORKER_BACKEND = ""
 _WORKER_MODEL = None
 
 
+def _module_spec_exists(name: str) -> bool:
+    try:
+        return importlib.util.find_spec(name) is not None
+    except Exception:
+        return False
+
+
+def _normalize_backend_preference(value: str | None) -> str:
+    value = (value or "auto").strip().lower()
+    if value in {"auto", "faster-whisper", "whisper"}:
+        return value
+    return "auto"
+
+
+def _supports_openai_whisper_backend(
+    version_info: tuple[int, int] | None = None,
+) -> bool:
+    if version_info is None:
+        current = sys.version_info
+        if hasattr(current, "major") and hasattr(current, "minor"):
+            version_info = (current.major, current.minor)
+        else:
+            version_info = tuple(current[:2])
+    elif hasattr(version_info, "major") and hasattr(version_info, "minor"):
+        version_info = (version_info.major, version_info.minor)
+    # openai-whisper imports numba/llvmlite at module import time. On Python
+    # 3.14, users can still have incompatible system-site installations visible
+    # through the venv, so keep the fallback disabled there and prefer
+    # faster-whisper exclusively.
+    return version_info < (3, 14)
+
+
+def _backend_candidates(preference: str = "auto") -> list[str]:
+    preference = _normalize_backend_preference(preference)
+    if preference == "faster-whisper":
+        return ["faster-whisper"]
+    if preference == "whisper":
+        return ["whisper"]
+    return ["faster-whisper", "whisper"]
+
+
+def _has_supported_backend(preference: str = "auto") -> bool:
+    for backend in _backend_candidates(preference):
+        if backend == "faster-whisper" and _module_spec_exists("faster_whisper"):
+            return True
+        if backend == "whisper" and _supports_openai_whisper_backend() and _module_spec_exists("whisper"):
+            return True
+    return False
+
+
+def _missing_backend_help(preference: str = "auto") -> str:
+    preference = _normalize_backend_preference(preference)
+    if preference == "whisper":
+        return (
+            "Run: pip install openai-whisper  "
+            "(supported Python versions only; startup keeps it isolated from the GUI process)"
+        )
+    if preference == "faster-whisper":
+        return "Run: pip install faster-whisper ctranslate2 huggingface-hub httpx tokenizers soundfile"
+    return "Run: pip install faster-whisper"
+
+
 def _coerce_language(value: str | None) -> str | None:
     """Treat blank/auto language values as model auto-detect."""
     if value is None:
@@ -32,28 +96,39 @@ def _coerce_language(value: str | None) -> str | None:
     return value
 
 
-def _init_transcriber_worker(model_size: str, device: str):
+def _init_transcriber_worker(model_size: str, device: str, backend_preference: str = "auto"):
     """Load Whisper once in a dedicated worker process."""
     global _WORKER_BACKEND, _WORKER_MODEL
+
+    backend_preference = _normalize_backend_preference(backend_preference)
 
     warnings.filterwarnings(
         "ignore", message="Performing inference on CPU when CUDA is available"
     )
 
-    try:
-        from faster_whisper import WhisperModel
+    if backend_preference in {"auto", "faster-whisper"}:
+        try:
+            from faster_whisper import WhisperModel
 
-        compute_type = "int8"
-        if device == "cuda":
-            compute_type = "float16"
-        elif device == "mps":
-            compute_type = "float32"
+            compute_type = "int8"
+            if device == "cuda":
+                compute_type = "float16"
+            elif device == "mps":
+                compute_type = "float32"
 
-        _WORKER_MODEL = WhisperModel(model_size, device=device, compute_type=compute_type)
-        _WORKER_BACKEND = "faster-whisper"
-        return
-    except Exception:
-        pass
+            _WORKER_MODEL = WhisperModel(model_size, device=device, compute_type=compute_type)
+            _WORKER_BACKEND = "faster-whisper"
+            return
+        except Exception:
+            if backend_preference == "faster-whisper":
+                raise
+            pass
+
+    if not _supports_openai_whisper_backend():
+        raise ImportError("openai-whisper backend disabled on Python 3.14+")
+
+    if backend_preference not in {"auto", "whisper"}:
+        raise ImportError(f"Unsupported transcription backend preference: {backend_preference}")
 
     import whisper
 
@@ -179,6 +254,9 @@ class MeetingTranscriber:
         self._backend_name = ""
         self._executor: ProcessPoolExecutor | None = None
         self._futures = set()
+        self._backend_preference = _normalize_backend_preference(
+            os.getenv("NVBROADCAST_TRANSCRIBER_BACKEND", "auto")
+        )
         # Keep meeting transcription off the GPU by default. In live testing,
         # sharing the GPU with the video stack produced garbage punctuation
         # transcripts even though offline decoding of the same audio was fine.
@@ -216,15 +294,7 @@ class MeetingTranscriber:
         if self._initialized:
             return True
         try:
-            backend_ok = False
-            for module_name in ("faster_whisper", "whisper"):
-                try:
-                    __import__(module_name)
-                    backend_ok = True
-                    break
-                except ImportError:
-                    continue
-            if not backend_ok:
+            if not _has_supported_backend(self._backend_preference):
                 raise ImportError("No local transcription backend installed")
             try:
                 import torch
@@ -247,7 +317,7 @@ class MeetingTranscriber:
                 max_workers=1,
                 mp_context=ctx,
                 initializer=_init_transcriber_worker,
-                initargs=(self._model_size, self._device),
+                initargs=(self._model_size, self._device, self._backend_preference),
             )
             # Force worker startup now so meeting start fails fast instead of
             # crashing later in the middle of a live capture.
@@ -260,7 +330,7 @@ class MeetingTranscriber:
         except ImportError:
             print(
                 "[Transcriber] No meeting transcription backend installed. "
-                "Run: pip install faster-whisper"
+                + _missing_backend_help(self._backend_preference)
             )
             return False
         except Exception as e:
@@ -401,7 +471,7 @@ class MeetingTranscriber:
             max_workers=1,
             mp_context=ctx,
             initializer=_init_transcriber_worker,
-            initargs=(model_name, device_name),
+            initargs=(model_name, device_name, self._backend_preference),
         )
         try:
             backend = executor.submit(_worker_ping).result(timeout=180)

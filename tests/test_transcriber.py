@@ -6,10 +6,61 @@ from unittest import mock
 
 import numpy as np
 
-from nvbroadcast.ai.transcriber import MeetingTranscriber
+from nvbroadcast.ai.transcriber import (
+    MeetingTranscriber,
+    _backend_candidates,
+    _has_supported_backend,
+    _missing_backend_help,
+    _normalize_backend_preference,
+    _supports_openai_whisper_backend,
+)
 
 
 class MeetingTranscriberTests(unittest.TestCase):
+    def test_backend_preference_normalization(self):
+        self.assertEqual(_normalize_backend_preference("whisper"), "whisper")
+        self.assertEqual(_normalize_backend_preference("faster-whisper"), "faster-whisper")
+        self.assertEqual(_normalize_backend_preference("bogus"), "auto")
+
+    def test_backend_candidates_respect_preference(self):
+        self.assertEqual(_backend_candidates("whisper"), ["whisper"])
+        self.assertEqual(_backend_candidates("faster-whisper"), ["faster-whisper"])
+        self.assertEqual(_backend_candidates("auto"), ["faster-whisper", "whisper"])
+
+    def test_openai_whisper_backend_disabled_on_python_314(self):
+        self.assertFalse(_supports_openai_whisper_backend((3, 14)))
+
+    def test_has_supported_backend_ignores_whisper_on_python_314(self):
+        def fake_find_spec(name):
+            if name == "faster_whisper":
+                return None
+            if name == "whisper":
+                return object()
+            raise AssertionError(f"Unexpected spec lookup: {name}")
+
+        with mock.patch("nvbroadcast.ai.transcriber.importlib.util.find_spec", side_effect=fake_find_spec), \
+             mock.patch("nvbroadcast.ai.transcriber.sys.version_info", (3, 14, 0, "final", 0)):
+            self.assertFalse(_has_supported_backend())
+
+    def test_has_supported_backend_allows_whisper_preference_on_supported_python(self):
+        def fake_find_spec(name):
+            if name == "faster_whisper":
+                return None
+            if name == "whisper":
+                return object()
+            raise AssertionError(f"Unexpected spec lookup: {name}")
+
+        with mock.patch("nvbroadcast.ai.transcriber.importlib.util.find_spec", side_effect=fake_find_spec):
+            self.assertTrue(_has_supported_backend("whisper"))
+
+    def test_initialize_returns_false_without_supported_backend(self):
+        transcriber = MeetingTranscriber("base")
+        with mock.patch("nvbroadcast.ai.transcriber._has_supported_backend", return_value=False):
+            self.assertFalse(transcriber.initialize())
+
+    def test_missing_backend_help_mentions_optional_whisper(self):
+        self.assertIn("openai-whisper", _missing_backend_help("whisper"))
+
     def test_start_returns_false_when_initialize_fails(self):
         transcriber = MeetingTranscriber("base")
         with mock.patch.object(transcriber, "initialize", return_value=False):

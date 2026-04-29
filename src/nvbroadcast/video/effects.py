@@ -477,6 +477,7 @@ class _RVMBackend:
         self.session = None
         self._r1 = self._r2 = self._r3 = self._r4 = None
         self._downsample_ratio = None
+        self._state_input_shape = None
         self._active_trt = False
         self._base_model_path = None
         self._trt_model_path = None
@@ -593,6 +594,8 @@ class _RVMBackend:
             "invalid feed input name",
             "unexpected input data type",
             "tensor shape",
+            "cannot broadcast",
+            "left operand cannot broadcast",
             "r1i",
             "r2i",
             "r3i",
@@ -705,6 +708,18 @@ class _RVMBackend:
     # 720p is the sweet spot: fast preprocessing, model quality maintained.
     _MAX_INFER_HEIGHT = 720
 
+    def _ensure_state_shape(self, infer_w: int, infer_h: int) -> None:
+        """Reset recurrent state before inference when the active input shape changes."""
+        shape = (infer_w, infer_h)
+        if self._state_input_shape == shape:
+            return
+        previous = self._state_input_shape
+        if previous is None:
+            self._state_input_shape = shape
+            return
+        self.reset_state(log=True)
+        self._state_input_shape = shape
+
     def infer(self, frame: np.ndarray, width: int, height: int) -> np.ndarray | None:
         # Pre-downsample large frames to reduce preprocessing + inference cost.
         # E.g. 1080p → 720p input saves ~50% time; alpha is upscaled back.
@@ -721,6 +736,7 @@ class _RVMBackend:
         rgb = cv2.cvtColor(small, cv2.COLOR_BGRA2RGB)
         src = rgb.astype(np.float32) * (1.0 / 255.0)
         src = src.transpose(2, 0, 1)[np.newaxis]  # HWC -> 1xCxHxW
+        self._ensure_state_shape(infer_w, infer_h)
 
         inputs = {
             'src': src,
@@ -753,6 +769,7 @@ class _RVMBackend:
                         print(f"[NV Broadcast] RVM state reset after recoverable shape transition: {exc}", flush=True)
                         self._reset_retry_logged = True
                     self.reset_state()
+                    self._state_input_shape = (infer_w, infer_h)
                     inputs['r1i'] = self._r1
                     inputs['r2i'] = self._r2
                     inputs['r3i'] = self._r3
@@ -770,6 +787,7 @@ class _RVMBackend:
         alpha = outputs[1][0, 0]
         self._r1, self._r2 = outputs[2], outputs[3]
         self._r3, self._r4 = outputs[4], outputs[5]
+        self._state_input_shape = (infer_w, infer_h)
 
         # Upscale to frame resolution if needed (low-res inference modes)
         if alpha.shape[0] != height or alpha.shape[1] != width:
@@ -782,7 +800,7 @@ class _RVMBackend:
 
         return alpha
 
-    def reset_state(self):
+    def reset_state(self, log: bool = True):
         """Reset recurrent states for resolution change.
         Zero (1,1,1,1) tensors trigger RVM's built-in shape auto-detection.
         """
@@ -790,14 +808,17 @@ class _RVMBackend:
         self._r2 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._r3 = np.zeros((1, 1, 1, 1), dtype=np.float32)
         self._r4 = np.zeros((1, 1, 1, 1), dtype=np.float32)
+        self._state_input_shape = None
         self._trt_session_shape = None
         self._trt_seed_shape = None
-        print("[NV Broadcast] RVM recurrent states reset", flush=True)
+        if log:
+            print("[NV Broadcast] RVM recurrent states reset", flush=True)
 
     def cleanup(self):
         _release_session(self.session)
         self.session = None
         self._r1 = self._r2 = self._r3 = self._r4 = None
+        self._state_input_shape = None
         self._trt_session_shape = None
         self._trt_seed_shape = None
 

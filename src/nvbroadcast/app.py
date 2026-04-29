@@ -809,7 +809,7 @@ class NVBroadcastApp(Adw.Application):
             if landmarker.ready:
                 landmarks = landmarker.request_async(
                     np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4),
-                    reuse_frames=2,
+                    reuse_frames=self._landmark_reuse_frames(),
                 )
 
             if self._beautifier.enabled:
@@ -863,24 +863,22 @@ class NVBroadcastApp(Adw.Application):
             score += 1
         return score
 
-    def _compute_inline_inference(self) -> bool:
-        """Choose between fully-inline alpha and the async alpha worker.
+    def _landmark_reuse_frames(self) -> int:
+        """Choose how aggressively to reuse shared face landmarks."""
+        score = self._face_effect_load_score()
+        if score >= 5 and not self._autoframe.enabled:
+            return 3
+        return 2
 
-        Full inline alpha gives the freshest matte, but once heavy CPU-bound face
-        effects are active on Linux the live frame thread can fall far behind.
-        In that case it is better to keep the same model quality and move alpha
-        inference to the background worker so the preview/virtual camera stay
-        closer to real time.
+    def _compute_inline_inference(self) -> bool:
+        """Keep quality profiles fully inline for the freshest live matte.
+
+        Async alpha helped throughput on some heavy stacks, but it also makes
+        replaced-background edges visibly trail motion because the current frame
+        is composited against an older alpha. For `max_quality` and `balanced`,
+        prioritize edge freshness and match the pre-1.1.6 live behavior.
         """
-        if self.config.performance_profile not in ("max_quality", "balanced"):
-            return False
-        if not self._video_effects.enabled:
-            return True
-        if self.config.use_tensorrt:
-            return True
-        if self._video_effects.mode != "replace":
-            return True
-        return self._face_effect_load_score() < 3
+        return self.config.performance_profile in ("max_quality", "balanced")
 
     def _refresh_inference_policy(self) -> None:
         inline = self._compute_inline_inference()

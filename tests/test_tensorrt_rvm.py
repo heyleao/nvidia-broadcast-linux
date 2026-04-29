@@ -257,6 +257,43 @@ class TensorrtRvmTests(unittest.TestCase):
         self.assertIsNone(backend._trt_session_shape)
         print_mock.assert_called_once()
 
+    def test_expand_broadcast_error_is_treated_as_shape_transition(self):
+        backend = _RVMBackend(1)
+        exc = RuntimeError(
+            "Expand_134: left operand cannot broadcast on dim 3 "
+            "LeftShape: {1,128,12,15}, RightShape: {1,128,15,20}"
+        )
+        self.assertTrue(backend._is_shape_transition_error(exc))
+
+    def test_infer_resets_proactively_when_input_shape_changes(self):
+        backend = _RVMBackend(1)
+        backend.session = mock.Mock()
+        outputs = [
+            np.zeros((1, 3, 480, 640), dtype=np.float32),
+            np.zeros((1, 1, 480, 640), dtype=np.float32),
+            np.zeros((1, 16, 90, 120), dtype=np.float32),
+            np.zeros((1, 32, 45, 60), dtype=np.float32),
+            np.zeros((1, 64, 23, 30), dtype=np.float32),
+            np.zeros((1, 128, 12, 15), dtype=np.float32),
+        ]
+        backend.session.run.return_value = outputs
+        backend.session.get_providers.return_value = ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        backend._downsample_ratio = np.array([0.375], dtype=np.float32)
+        backend._r1 = np.ones((1, 16, 112, 150), dtype=np.float32)
+        backend._r2 = np.ones((1, 32, 56, 75), dtype=np.float32)
+        backend._r3 = np.ones((1, 64, 28, 38), dtype=np.float32)
+        backend._r4 = np.ones((1, 128, 14, 19), dtype=np.float32)
+        backend._state_input_shape = (800, 600)
+        frame = np.zeros((480, 640, 4), dtype=np.uint8)
+
+        with mock.patch.object(backend, "reset_state", wraps=backend.reset_state) as reset_state:
+            alpha = backend.infer(frame, 640, 480)
+
+        self.assertEqual(alpha.shape, (480, 640))
+        reset_state.assert_called_once()
+        backend.session.run.assert_called_once()
+        self.assertEqual(backend._state_input_shape, (640, 480))
+
     def test_infer_generic_runtime_error_does_not_reset_state(self):
         backend = _RVMBackend(1)
         backend.session = mock.Mock()

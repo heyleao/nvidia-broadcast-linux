@@ -56,6 +56,7 @@ from nvbroadcast.core.meeting_store import (
 from nvbroadcast.audio.pipeline import AudioPipeline
 from nvbroadcast.audio.monitor import SpeakerMonitor
 from nvbroadcast.audio.meeting_capture import MeetingAudioCapture
+from nvbroadcast.audio.virtual_mic import has_virtual_mic_backend
 from nvbroadcast.ui.window import NVBroadcastWindow
 from nvbroadcast import __version__
 
@@ -530,7 +531,7 @@ class NVBroadcastApp(Adw.Application):
         self._autoframe.zoom_level = c.video.auto_frame_zoom
         self._refresh_inference_policy()
 
-        if c.audio.noise_removal or c.audio.voice_fx_enabled:
+        if self._audio_pipeline_should_publish() or c.audio.noise_removal or c.audio.voice_fx_enabled:
             audio_pipeline = self._ensure_audio_pipeline()
             audio_pipeline.effects.enabled = c.audio.noise_removal
             audio_pipeline.effects.intensity = c.audio.noise_intensity
@@ -1853,12 +1854,21 @@ class NVBroadcastApp(Adw.Application):
             self._audio_pipeline.build()
         return self._audio_pipeline
 
+    def _audio_pipeline_should_publish(self) -> bool:
+        """Keep the exported mic live while the app is running.
+
+        Users select `nvbroadcast` in meeting apps and expect it to keep working
+        even when processing toggles are off. In that idle state the pipeline is
+        just passthrough, while noise removal / voice FX still remain optional.
+        """
+        return IS_LINUX and has_virtual_mic_backend()
+
     def _audio_pipeline_should_run(self) -> bool:
+        if self._audio_pipeline_should_publish():
+            return True
         if self.config.audio.noise_removal:
             return True
-        if self._audio_pipeline and self._audio_pipeline._voice_fx:
-            return self._audio_pipeline._voice_fx.enabled
-        return False
+        return bool(self.config.audio.voice_fx_enabled)
 
     def _refresh_audio_pipeline(self):
         pipeline = self._audio_pipeline

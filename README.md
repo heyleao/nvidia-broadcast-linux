@@ -678,12 +678,24 @@ Found a bug? [Open an issue](https://github.com/Hkshoonya/nvidia-broadcast-linux
 
 ## Sponsor This Project
 
-If NV Broadcast saves you from going back to Windows, consider sponsoring:
+If NV Broadcast saves you from going back to Windows, consider sponsoring.
+
+This project takes ongoing work across GPU runtimes, packaging, camera/audio compatibility, meeting features, and cross-distro bug fixes. Sponsorship helps keep that work moving without turning the app into adware or locking core features behind a paywall.
+
+- **Individual sponsors** help fund day-to-day fixes, release maintenance, and new features
+- **Creator and business sponsors** help cover hardware testing, distro support, packaging, and priority reliability work
+- **All sponsors** help keep the Linux version improving instead of stagnating behind Windows-only tools
 
 <p align="center">
   <a href="https://github.com/sponsors/Hkshoonya">
     <img src="https://img.shields.io/badge/Sponsor_DocZeus-Support_Development-76b900?style=for-the-badge&logo=githubsponsors&logoColor=white&labelColor=1a1a1a" alt="Sponsor">
   </a>
+</p>
+
+<p align="center">
+  <a href="https://github.com/sponsors/Hkshoonya">GitHub Sponsors</a> ·
+  <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/issues">Report bugs</a> ·
+  <a href="https://github.com/Hkshoonya/nvidia-broadcast-linux/discussions">Share ideas</a>
 </p>
 
 ---

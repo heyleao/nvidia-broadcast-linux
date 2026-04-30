@@ -1949,6 +1949,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             version=__import__("nvbroadcast").__version__,
             developer_name="doczeus",
             website="https://github.com/Hkshoonya/nvidia-broadcast-linux",
+            support_url="https://github.com/sponsors/Hkshoonya",
             issue_url="https://github.com/Hkshoonya/nvidia-broadcast-linux/issues",
             license_type=Gtk.License.GPL_3_0,
             copyright="Copyright (c) 2026 doczeus",
@@ -1963,6 +1964,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 "Created by doczeus | AI Powered"
             ),
         )
+        about.add_link("Sponsor on GitHub", "https://github.com/sponsors/Hkshoonya")
         about.present()
 
     def _open_update_release(self, button):

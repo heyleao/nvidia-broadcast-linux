@@ -67,7 +67,9 @@
         <p>Live edge quality and microphone reliability patch</p>
         <ul>
           <li>Improved background replace around hair edges, finger gaps, and hands near the body during motion</li>
+          <li>Improved live quality-mode behavior so motion edges stay fresher and trail less during movement</li>
           <li>Reduced beautify and relighting spill into head hair so hair looks more natural and less washed out</li>
+          <li>Tuned the live GPU background path and shared face-effect flow for steadier real-time behavior</li>
           <li>Kept the exported nvbroadcast microphone available even when voice effects and noise removal are turned off</li>
           <li>Rechecked audio, video, meeting transcription, summaries, and packaging paths before release</li>
         </ul>

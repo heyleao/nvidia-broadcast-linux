@@ -11,8 +11,11 @@ description: |
   Recommended stable update:
   - v1.1.7 improves hair edges, finger gaps, and hands near the body when you
     use background replace.
+  - Motion edges stay cleaner in quality modes, so the background is less
+    likely to look like it is following you during movement.
   - Face effects stay off the hairline better, so hair looks more natural and
     less washed out.
+  - Live background processing is steadier during real-time use.
   - The nvbroadcast microphone now stays available even when voice effects and
     noise removal are turned off.
 

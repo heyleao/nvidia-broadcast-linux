@@ -45,7 +45,9 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 ### v1.1.7 — Live Edge and Mic Reliability Patch
 
 - **Cleaner Hair and Hand Edges** — Background replace now holds hair edges, finger gaps, and hands near the body more cleanly during motion
-- **Less Face-Effect Spill Into Hair** — Beautify and relighting stay lower on the face, so head hair and side hair look less bright and washed out
+- **Better Live Quality Mode Behavior** — Quality profiles now stay closer to the fresher inline matte path, which reduces the “edges follow motion” look that showed up after the earlier lag fixes
+- **Less Face-Effect Spill Into Hair** — Beautify and relighting now use tighter face-tone masks, so head hair and side hair look less bright and washed out
+- **Stronger Live Processing Path** — The live GPU/background path, shared face-landmark worker flow, and fused face-overlay handling were tuned further for steadier real-time behavior
 - **Mic Always Ready** — The exported `nvbroadcast` microphone now stays available even when voice effects and noise removal are turned off
 - **Broader Release Verification** — This release was rechecked across video, audio, meeting transcription, summaries, packaging metadata, and release smoke before shipping
 

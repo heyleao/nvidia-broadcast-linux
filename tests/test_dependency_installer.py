@@ -66,9 +66,22 @@ class DependencyInstallerTests(unittest.TestCase):
 
     def test_zeus_mode_allowed_when_tensorrt_runtime_already_present(self):
         installer = dependency_installer.DependencyInstaller()
-        with mock.patch.object(dependency_installer, "has_tensorrt_runtime", return_value=True), \
+        with mock.patch.object(dependency_installer, "IS_LINUX", True), \
+             mock.patch.object(dependency_installer, "IS_ARM64", False), \
+             mock.patch.object(dependency_installer, "has_tensorrt_runtime", return_value=True), \
              mock.patch.object(dependency_installer, "supports_tensorrt_python", return_value=False):
             self.assertIsNone(installer.unsupported_reason_for_mode("zeus"))
+
+    def test_zeus_mode_stays_blocked_on_linux_arm64_even_with_runtime_present(self):
+        installer = dependency_installer.DependencyInstaller()
+        with mock.patch.object(dependency_installer, "IS_LINUX", True), \
+             mock.patch.object(dependency_installer, "IS_ARM64", True), \
+             mock.patch.object(dependency_installer, "has_tensorrt_runtime", return_value=True), \
+             mock.patch.object(dependency_installer, "supports_tensorrt_python", return_value=False):
+            self.assertEqual(
+                installer.unsupported_reason_for_mode("zeus"),
+                "GPU CUDA and TensorRT modes are not available on Linux arm64 yet. Use CPU modes for now.",
+            )
 
     def test_whisper_package_spec_installs_httpx(self):
         install_args = dependency_installer.PACKAGE_SPECS["whisper"]["install_args"]

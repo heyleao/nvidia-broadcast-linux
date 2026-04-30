@@ -160,10 +160,18 @@ class AutoFrame:
 
     def process_frame(self, frame_data: bytes, width: int, height: int) -> bytes:
         """Detect face and apply auto-crop/zoom."""
-        if not self._enabled or not self._initialized:
+        frame = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 4)
+        result = self.process_frame_array(frame, width, height)
+        if result is frame:
             return frame_data
+        return result.tobytes()
 
-        frame = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 4).copy()
+    def process_frame_array(self, frame: np.ndarray, width: int, height: int) -> np.ndarray:
+        """Detect face and apply auto-crop/zoom to a BGRA ndarray."""
+        if not self._enabled or not self._initialized:
+            return frame
+        if not frame.flags.writeable:
+            frame = frame.copy()
 
         face_box = self._detect_face(frame)
 
@@ -188,8 +196,7 @@ class AutoFrame:
                 self._smooth_zoom = (self._smoothing * self._smooth_zoom +
                                      (1 - self._smoothing) * 1.0)
 
-        result = self._crop_and_zoom(frame, width, height)
-        return result.tobytes()
+        return self._crop_and_zoom(frame, width, height)
 
     def _detect_face(self, frame: np.ndarray) -> tuple[float, float] | None:
         """Detect the primary face. Returns (center_x, center_y) normalized [0,1]."""

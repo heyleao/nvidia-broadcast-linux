@@ -1243,6 +1243,7 @@ class VideoEffects:
         self._edge_config = edge_config
         self._use_tensorrt = False   # Zeus/Killer mode
         self._use_fused_kernel = False  # DocZeus/Killer mode
+        self._requested_non_trt_infer_height = 720
         self._edge_refine_enabled = False  # Edge refinement toggle
         self._edge_refiner = EdgeRefiner(gpu_index)
         self._learned_refiners = {
@@ -1270,15 +1271,30 @@ class VideoEffects:
         self._prev_alpha = None  # Previous frame's alpha for temporal smoothing
         self._stable_alpha = None  # Pre-tightened alpha for replacement smoothing
         self._cached_replace_matte = None
-        self._cached_replace_matte_source_id = None
+        self._cached_replace_matte_source_serial = None
         self._latest_final_matte_u8 = None
         self._latest_final_matte_size = None
         self._matte_version = 0
+        self._cached_alpha_serial = 0
         self._skip_interval = 1
         self._temporal_strength = 0.34  # EMA weight for temporal smoothing
         self._engine_reload_generation = 0
         self._engine_reload_in_progress = False
         self._last_frame_size = None
+        self._fused_face_mask = None
+        self._fused_vignette = None
+        self._fused_enhance_intensity = 0.0
+        self._fused_vignette_intensity = 0.0
+        self._fused_brightness = 0.0
+        self._fused_contrast = 0.0
+        self._fused_warmth = 0.0
+        self._fused_bg_gpu = None
+        self._fused_bg_source_id = None
+        self._fused_bg_size = None
+        self._fused_face_mask_gpu = None
+        self._fused_face_mask_source_id = None
+        self._fused_vignette_gpu = None
+        self._fused_vignette_source_id = None
 
         # Alpha refinement
         self._apply_edge_config(edge_config)
@@ -1292,9 +1308,10 @@ class VideoEffects:
             self._prev_alpha = None
             self._stable_alpha = None
             self._cached_replace_matte = None
-            self._cached_replace_matte_source_id = None
+            self._cached_replace_matte_source_serial = None
             self._latest_final_matte_u8 = None
             self._latest_final_matte_size = None
+        self._reset_fused_gpu_caches(clear_bg=False)
 
     def _prepare_backend_handoff(self):
         """Invalidate temporal state while keeping the last matte visible."""
@@ -1303,9 +1320,10 @@ class VideoEffects:
             self._prev_alpha = None
             self._stable_alpha = None
             self._cached_replace_matte = None
-            self._cached_replace_matte_source_id = None
+            self._cached_replace_matte_source_serial = None
             self._latest_final_matte_u8 = None
             self._latest_final_matte_size = None
+        self._reset_fused_gpu_caches(clear_bg=False)
 
     def _matte_snapshot(self) -> tuple[np.ndarray | None, int]:
         """Return the current cached alpha and its generation."""
@@ -1326,12 +1344,48 @@ class VideoEffects:
         with self._state_lock:
             self._last_frame_size = (width, height)
 
+    def set_fused_face_overlay(
+        self,
+        face_mask: np.ndarray | None,
+        vignette: np.ndarray | None,
+        enhance_intensity: float = 0.0,
+        vignette_intensity: float = 0.0,
+        brightness: float = 0.0,
+        contrast: float = 0.0,
+        warmth: float = 0.0,
+    ) -> None:
+        """Provide optional face overlay inputs for the fused CUDA compositor."""
+        self._fused_face_mask = face_mask
+        self._fused_vignette = vignette
+        self._fused_enhance_intensity = float(enhance_intensity)
+        self._fused_vignette_intensity = float(vignette_intensity)
+        self._fused_brightness = float(brightness)
+        self._fused_contrast = float(contrast)
+        self._fused_warmth = float(warmth)
+        if face_mask is None:
+            self._fused_face_mask_gpu = None
+            self._fused_face_mask_source_id = None
+        if vignette is None:
+            self._fused_vignette_gpu = None
+            self._fused_vignette_source_id = None
+
+    def _reset_fused_gpu_caches(self, clear_bg: bool = True) -> None:
+        self._fused_face_mask_gpu = None
+        self._fused_face_mask_source_id = None
+        self._fused_vignette_gpu = None
+        self._fused_vignette_source_id = None
+        if clear_bg:
+            self._fused_bg_gpu = None
+            self._fused_bg_source_id = None
+            self._fused_bg_size = None
+
     def _commit_alpha(self, alpha: np.ndarray, matte_version: int) -> bool:
         """Store an alpha mask only if matte state has not been invalidated."""
         with self._state_lock:
             if matte_version != self._matte_version:
                 return False
             self._cached_alpha = alpha
+            self._cached_alpha_serial += 1
             return True
 
     @property
@@ -1422,6 +1476,7 @@ class VideoEffects:
             self._bg_image_path = ""
             self._resized_bg = None
             self._bg_resized = None
+            self._reset_fused_gpu_caches(clear_bg=True)
             with self._state_lock:
                 self._stable_alpha = None
             return False
@@ -1443,6 +1498,7 @@ class VideoEffects:
         self._frame_size = None
         self._resized_bg = None
         self._bg_resized = None
+        self._reset_fused_gpu_caches(clear_bg=True)
         with self._state_lock:
             self._stable_alpha = None
         return True
@@ -1485,10 +1541,45 @@ class VideoEffects:
         if self._model_type == "rvm":
             backend = _RVMBackend(self._gpu_index)
             msg = backend.load(self._quality, use_tensorrt=self._use_tensorrt)
+            if hasattr(backend, "_MAX_INFER_HEIGHT"):
+                backend._MAX_INFER_HEIGHT = self._resolve_max_infer_height()
         else:
             backend = _SingleFrameBackend(self._gpu_index, self._model_type)
             msg = backend.load()
         return backend, msg
+
+    def _resolve_max_infer_height(self) -> int:
+        """Return the active RVM infer-height cap for the current engine mode."""
+        if self._use_tensorrt and self._use_fused_kernel:
+            return 360
+        if self._use_tensorrt:
+            return 480
+        return self._requested_non_trt_infer_height
+
+    def set_profile_infer_height(self, infer_h: int) -> None:
+        """Update the non-TensorRT infer-height cap driven by the profile."""
+        infer_h = int(infer_h) & ~1
+        infer_h = max(240, min(720, infer_h))
+        if infer_h == self._requested_non_trt_infer_height:
+            return
+        self._requested_non_trt_infer_height = infer_h
+        if self._use_tensorrt:
+            return
+        if self._backend and hasattr(self._backend, "_MAX_INFER_HEIGHT"):
+            changed = False
+            old_h = infer_h
+            with self._lock:
+                backend = self._backend
+                if backend is None or not hasattr(backend, "_MAX_INFER_HEIGHT"):
+                    return
+                old_h = backend._MAX_INFER_HEIGHT
+                if old_h != infer_h:
+                    backend._MAX_INFER_HEIGHT = infer_h
+                    backend.reset_state()
+                    changed = True
+            if changed:
+                self.reset_cached_mattes()
+                print(f"[NV Broadcast] Inference resolution: {old_h}p → {infer_h}p")
 
     def initialize(self) -> bool:
         """Initialize the active model backend."""
@@ -1768,6 +1859,65 @@ class VideoEffects:
             preserve |= labels == idx
         return preserve
 
+    @staticmethod
+    def _preserve_narrow_exterior_gaps(original_u8: np.ndarray,
+                                       closed_u8: np.ndarray,
+                                       binary_threshold: int,
+                                       min_span_ratio: float,
+                                       max_span_ratio: float,
+                                       min_aspect_ratio: float = 2.0,
+                                       max_area_ratio: float | None = None) -> np.ndarray:
+        """Return narrow exterior channels that closing should not bridge.
+
+        These are background slits connected to the outer background, such as
+        spaces between fingers or between a raised arm and the torso. A generic
+        morphological close tends to merge them; preserve only elongated added
+        components that are bounded by foreground on opposing sides.
+        """
+        _, original = cv2.threshold(original_u8, binary_threshold, 255, cv2.THRESH_BINARY)
+        _, closed = cv2.threshold(closed_u8, binary_threshold, 255, cv2.THRESH_BINARY)
+        added = ((closed == 255) & (original == 0)).astype(np.uint8)
+        if not added.any():
+            return np.zeros_like(original_u8, dtype=bool)
+
+        h, w = original_u8.shape[:2]
+        min_long = max(3, int(max(h, w) * min_span_ratio))
+        max_short = max(2, min(12, int(min(h, w) * max_span_ratio)))
+        max_area = None if max_area_ratio is None else max(8, int(h * w * max_area_ratio))
+
+        preserve = np.zeros_like(original_u8, dtype=bool)
+        num, labels, stats, _centroids = cv2.connectedComponentsWithStats(added, connectivity=8)
+        for idx in range(1, num):
+            area = int(stats[idx, cv2.CC_STAT_AREA])
+            span_w = int(stats[idx, cv2.CC_STAT_WIDTH])
+            span_h = int(stats[idx, cv2.CC_STAT_HEIGHT])
+            short_span = max(1, min(span_w, span_h))
+            long_span = max(span_w, span_h)
+            if max_area is not None and area > max_area:
+                continue
+            if long_span < min_long or short_span > max_short:
+                continue
+            if float(long_span) / float(short_span) < min_aspect_ratio:
+                continue
+
+            x0 = int(stats[idx, cv2.CC_STAT_LEFT])
+            y0 = int(stats[idx, cv2.CC_STAT_TOP])
+            x1 = min(w, x0 + span_w)
+            y1 = min(h, y0 + span_h)
+            if span_h >= span_w:
+                left = original[max(0, y0 - 1):min(h, y1 + 1), max(0, x0 - 1):x0]
+                right = original[max(0, y0 - 1):min(h, y1 + 1), x1:min(w, x1 + 1)]
+                if not (left.any() and right.any()):
+                    continue
+            else:
+                top = original[max(0, y0 - 1):y0, max(0, x0 - 1):min(w, x1 + 1)]
+                bottom = original[y1:min(h, y1 + 1), max(0, x0 - 1):min(w, x1 + 1)]
+                if not (top.any() and bottom.any()):
+                    continue
+
+            preserve |= labels == idx
+        return preserve
+
     def _replacement_matte(self, alpha: np.ndarray,
                            matte_version: int | None = None) -> np.ndarray:
         """Stabilize and slightly tighten the matte for image replacement.
@@ -1777,6 +1927,7 @@ class VideoEffects:
         immediately visible as a halo. This path keeps replacement mattes more
         stable without smearing motion.
         """
+        preserve_detail = self._quality == "quality"
         with self._state_lock:
             if matte_version is not None and matte_version != self._matte_version:
                 return alpha
@@ -1790,15 +1941,18 @@ class VideoEffects:
 
             # Keep replace-mode stabilization lighter than blur/remove so
             # narrow hair gaps and under-arm openings can reopen quickly.
-            weight = np.full_like(alpha, 0.07 * motion_gate, dtype=np.float32)
+            base_weight = 0.05 if preserve_detail else 0.07
+            edge_weight = 0.11 if preserve_detail else 0.15
+            fringe_weight = 0.16 if preserve_detail else 0.21
+            weight = np.full_like(alpha, base_weight * motion_gate, dtype=np.float32)
             edge_mask = (alpha > 0.02) & (alpha < 0.98)
             fringe_mask = (alpha > 0.02) & (alpha < 0.35)
-            weight[edge_mask] = 0.15 * motion_gate
-            weight[fringe_mask] = 0.21 * motion_gate
+            weight[edge_mask] = edge_weight * motion_gate
+            weight[fringe_mask] = fringe_weight * motion_gate
 
             dropping = alpha < prev - 0.04
-            weight[dropping] *= 0.18
-            np.clip(weight, 0.0, 0.30, out=weight)
+            weight[dropping] *= 0.10 if preserve_detail else 0.18
+            np.clip(weight, 0.0, 0.24 if preserve_detail else 0.30, out=weight)
 
             stable = weight * prev + (1.0 - weight) * alpha
 
@@ -1807,16 +1961,24 @@ class VideoEffects:
         matte[matte > 0.985] = 1.0
 
         matte_u8 = np.clip(matte * 255.0, 0, 255).astype(np.uint8)
-        preserve_holes = self._preserve_large_internal_holes(
-            matte_u8,
+        work_mask = matte_u8
+        work_scale = 1
+        if max(matte_u8.shape[:2]) >= 960 or min(matte_u8.shape[:2]) >= 540:
+            work_scale = 2
+            sw = max(8, matte_u8.shape[1] // work_scale)
+            sh = max(8, matte_u8.shape[0] // work_scale)
+            work_mask = cv2.resize(matte_u8, (sw, sh), interpolation=cv2.INTER_AREA)
+
+        preserve_holes_small = self._preserve_large_internal_holes(
+            work_mask,
             binary_threshold=74,
             min_area_ratio=0.00008,
             min_span_ratio=0.018,
             min_aspect_ratio=2.0,
             max_area_ratio=0.0011,
         )
-        matte_u8 = self._fill_small_internal_holes(
-            matte_u8,
+        work_mask = self._fill_small_internal_holes(
+            work_mask,
             binary_threshold=78,
             fill_cutoff=58,
             fill_value=184,
@@ -1824,8 +1986,20 @@ class VideoEffects:
             max_span_ratio=0.028,
         )
 
-        if min(matte_u8.shape[:2]) >= 8:
-            matte_u8 = cv2.GaussianBlur(matte_u8, (3, 3), 0)
+        if min(work_mask.shape[:2]) >= 8 and not preserve_detail:
+            work_mask = cv2.GaussianBlur(work_mask, (3, 3), 0)
+
+        if work_scale > 1:
+            matte_u8 = cv2.resize(work_mask, (matte_u8.shape[1], matte_u8.shape[0]), interpolation=cv2.INTER_LINEAR)
+            preserve_holes = cv2.resize(
+                preserve_holes_small.astype(np.uint8),
+                (matte_u8.shape[1], matte_u8.shape[0]),
+                interpolation=cv2.INTER_NEAREST,
+            ).astype(bool)
+        else:
+            matte_u8 = work_mask
+            preserve_holes = preserve_holes_small
+
         matte = matte_u8.astype(np.float32) * (1.0 / 255.0)
 
         mid = (matte > 0.04) & (matte < 0.55)
@@ -1847,11 +2021,12 @@ class VideoEffects:
     def _replacement_matte_cached(self, alpha: np.ndarray,
                                   matte_version: int | None = None) -> np.ndarray:
         """Reuse the alpha-only replacement matte while the cached alpha is unchanged."""
-        alpha_id = id(alpha)
         with self._state_lock:
+            alpha_serial = self._cached_alpha_serial if self._cached_alpha is alpha else None
             if (
-                self._cached_replace_matte is not None
-                and self._cached_replace_matte_source_id == alpha_id
+                alpha_serial is not None
+                and self._cached_replace_matte is not None
+                and self._cached_replace_matte_source_serial == alpha_serial
                 and self._cached_replace_matte.shape == alpha.shape
             ):
                 return self._cached_replace_matte.copy()
@@ -1860,8 +2035,9 @@ class VideoEffects:
         with self._state_lock:
             if matte_version is not None and matte_version != self._matte_version:
                 return alpha
+            alpha_serial = self._cached_alpha_serial if self._cached_alpha is alpha else None
             self._cached_replace_matte = matte.copy()
-            self._cached_replace_matte_source_id = alpha_id
+            self._cached_replace_matte_source_serial = alpha_serial
         return matte
 
     def _edge_aware_replace_matte(self, frame: np.ndarray, matte: np.ndarray) -> np.ndarray:
@@ -1875,6 +2051,7 @@ class VideoEffects:
         """
         if matte is None or min(matte.shape[:2]) < 8:
             return matte
+        preserve_detail = self._quality == "quality"
 
         h, w = matte.shape[:2]
         gray = cv2.cvtColor(frame, cv2.COLOR_BGRA2GRAY).astype(np.float32) * (1.0 / 255.0)
@@ -1883,10 +2060,13 @@ class VideoEffects:
             return matte
 
         if max(h, w) >= 960 or min(h, w) >= 540:
-            sw = max(8, w // 2)
-            sh = max(8, h // 2)
+            # The edge-aware pass is only a local confidence signal for the
+            # transition band. At meeting resolutions, quarter-resolution
+            # gradients preserve that signal while cutting a meaningful amount
+            # of per-frame CPU work on replace mode.
+            sw = max(8, w // 4)
+            sh = max(8, h // 4)
             gray_small = cv2.resize(gray, (sw, sh), interpolation=cv2.INTER_AREA)
-            matte_small = cv2.resize(matte, (sw, sh), interpolation=cv2.INTER_LINEAR)
             gx = cv2.Sobel(gray_small, cv2.CV_32F, 1, 0, ksize=3)
             gy = cv2.Sobel(gray_small, cv2.CV_32F, 0, 1, ksize=3)
             grad = cv2.magnitude(gx, gy)
@@ -1907,20 +2087,25 @@ class VideoEffects:
         eps = 1e-4
         clipped = np.clip(matte, eps, 1.0 - eps)
         logits = np.log(clipped / (1.0 - clipped))
-        sharpened = 1.0 / (1.0 + np.exp(-(logits * (1.0 + 1.75 * focus))))
+        sharpen_gain = 1.95 if preserve_detail else 1.75
+        sharpened = 1.0 / (1.0 + np.exp(-(logits * (1.0 + sharpen_gain * focus))))
 
-        blend = np.clip(focus * 0.80, 0.0, 0.80)
+        blend_cap = 0.88 if preserve_detail else 0.80
+        blend = np.clip(focus * blend_cap, 0.0, blend_cap)
         result = matte * (1.0 - blend) + sharpened * blend
 
         supported_fine_fringe = (matte > 0.05) & (matte < 0.18) & (edge_strength >= 0.10)
         result[supported_fine_fringe] = np.maximum(
             result[supported_fine_fringe],
-            matte[supported_fine_fringe] * 0.78,
+            matte[supported_fine_fringe] * (0.52 if preserve_detail else 0.78),
         )
+        if preserve_detail:
+            thin_strong_edge_fringe = (matte > 0.05) & (matte < 0.16) & (edge_strength >= 0.18)
+            result[thin_strong_edge_fringe] *= 0.92
 
         weak_edge_fringe = (result > 0.0) & (result < 0.12) & (edge_strength < 0.12)
-        result[weak_edge_fringe] *= 0.82
-        result[(result < 0.06) & (edge_strength < 0.10)] = 0.0
+        result[weak_edge_fringe] *= 0.74 if preserve_detail else 0.82
+        result[(result < (0.05 if preserve_detail else 0.06)) & (edge_strength < 0.10)] = 0.0
         result[result > 0.985] = 1.0
         return result.astype(np.float32)
 
@@ -1969,26 +2154,32 @@ class VideoEffects:
 
     def composite_only(self, frame_data: bytes, width: int, height: int) -> bytes:
         """Composite current frame with cached alpha. Fast — no inference."""
-        if not self._bg_removal_enabled or not self._initialized:
+        frame = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 4)
+        result = self.composite_only_array(frame, width, height)
+        if result is frame:
             return frame_data
+        return result.tobytes()
+
+    def composite_only_array(self, frame: np.ndarray, width: int, height: int) -> np.ndarray:
+        """Composite current frame with cached alpha and return an ndarray."""
+        if not self._bg_removal_enabled or not self._initialized:
+            return frame
         self._remember_frame_size(width, height)
         alpha, matte_version = self._matte_snapshot()
         if alpha is None:
-            return frame_data
+            return frame
 
-        # Resolution changed — alpha is wrong size, resize it
         if alpha.shape[0] != height or alpha.shape[1] != width:
             alpha = cv2.resize(alpha, (width, height), interpolation=cv2.INTER_LINEAR)
 
-        frame = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 4)
         if not frame.flags.writeable:
             frame = frame.copy()
 
-        return self._composite(frame, alpha, width, height, matte_version)
+        return self._composite_array(frame, alpha, width, height, matte_version)
 
-    def _composite(self, frame: np.ndarray, alpha: np.ndarray,
-                   width: int, height: int,
-                   matte_version: int | None = None) -> bytes:
+    def _composite_array(self, frame: np.ndarray, alpha: np.ndarray,
+                         width: int, height: int,
+                         matte_version: int | None = None) -> np.ndarray:
         """Apply alpha mask to frame — shared by process_frame and composite_only."""
         # Ensure alpha matches frame dimensions
         if alpha.shape[0] != height or alpha.shape[1] != width:
@@ -2004,7 +2195,7 @@ class VideoEffects:
         if self._use_fused_kernel and self._cupy is not None:
             result = self._composite_fused(frame, alpha, width, height)
             if result is not None:
-                return result.tobytes()
+                return result
 
         # Standard compositing path
         if self._bg_mode == "blur":
@@ -2013,14 +2204,26 @@ class VideoEffects:
             result = self._apply_green_screen(frame, alpha, width, height)
         else:
             result = self._apply_replace(frame, alpha, width, height)
-        return result.tobytes()
+        return result
+
+    def _composite(self, frame: np.ndarray, alpha: np.ndarray,
+                   width: int, height: int,
+                   matte_version: int | None = None) -> bytes:
+        """Compatibility wrapper for tests and older internal call sites."""
+        return self._composite_array(frame, alpha, width, height, matte_version).tobytes()
 
     def process_frame(self, frame_data: bytes, width: int, height: int) -> bytes:
-        if not self._bg_removal_enabled or not self._initialized:
+        frame = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 4)
+        result = self.process_frame_array(frame, width, height)
+        if result is frame:
             return frame_data
+        return result.tobytes()
+
+    def process_frame_array(self, frame: np.ndarray, width: int, height: int) -> np.ndarray:
+        if not self._bg_removal_enabled or not self._initialized:
+            return frame
 
         self._remember_frame_size(width, height)
-        frame = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 4)
         if not frame.flags.writeable:
             frame = frame.copy()
 
@@ -2040,13 +2243,13 @@ class VideoEffects:
             elif alpha is None:
                 alpha, matte_version = self._matte_snapshot()
             if alpha is None:
-                return frame_data
+                return frame
         elif alpha is None:
             alpha, matte_version = self._matte_snapshot()
             if alpha is None:
-                return frame_data
+                return frame
 
-        return self._composite(frame, alpha, width, height, matte_version)
+        return self._composite_array(frame, alpha, width, height, matte_version)
 
     def _run_inference(self, frame: np.ndarray, width: int, height: int,
                        matte_version: int | None = None) -> np.ndarray | None:
@@ -2120,7 +2323,9 @@ class VideoEffects:
     def _refine_alpha(self, alpha: np.ndarray) -> np.ndarray:
         a8 = np.clip(alpha * 255, 0, 255).astype(np.uint8)
         is_replace = self._bg_mode == "replace"
+        preserve_detail = is_replace and self._quality == "quality"
         preserve_holes = None
+        preserve_slits = None
         if is_replace:
             preserve_holes = self._preserve_large_internal_holes(
                 a8,
@@ -2138,16 +2343,29 @@ class VideoEffects:
         )
         a8 = cv2.morphologyEx(a8, cv2.MORPH_CLOSE, close_sm)
 
+        if is_replace:
+            preserve_slits = self._preserve_narrow_exterior_gaps(
+                np.clip(alpha * 255, 0, 255).astype(np.uint8),
+                a8,
+                binary_threshold=70,
+                min_span_ratio=0.025,
+                max_span_ratio=0.24,
+                min_aspect_ratio=2.0,
+                max_area_ratio=None,
+            )
         # 2. Half-resolution close: keep replacement tighter, keep blur/remove
-        #    more forgiving where wide feathering hides seams.
-        h, w = a8.shape[:2]
-        small = cv2.resize(a8, (w // 2, h // 2), interpolation=cv2.INTER_AREA)
-        close_size = 3 if is_replace else 25
-        close_lg = cv2.getStructuringElement(
-            cv2.MORPH_ELLIPSE, (close_size, close_size)
-        )
-        small = cv2.morphologyEx(small, cv2.MORPH_CLOSE, close_lg)
-        a8 = cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
+        #    more forgiving where wide feathering hides seams. Quality replace
+        #    mode skips this broad close and relies on final-matte cleanup so
+        #    narrow hair/finger channels stay visible.
+        if not preserve_detail:
+            h, w = a8.shape[:2]
+            small = cv2.resize(a8, (w // 2, h // 2), interpolation=cv2.INTER_AREA)
+            close_size = 3 if is_replace else 25
+            close_lg = cv2.getStructuringElement(
+                cv2.MORPH_ELLIPSE, (close_size, close_size)
+            )
+            small = cv2.morphologyEx(small, cv2.MORPH_CLOSE, close_lg)
+            a8 = cv2.resize(small, (w, h), interpolation=cv2.INTER_LINEAR)
 
         # 3. Fill interior holes. Replacement mode is intentionally more
         #    conservative so we do not inflate the subject outline.
@@ -2166,28 +2384,38 @@ class VideoEffects:
         if is_replace:
             # 4. Keep replacement narrow. Inflating the silhouette is what
             #    creates shoulder and ear halos against a swapped background.
-            a8 = cv2.GaussianBlur(a8, (5, 5), 0)
-            a8 = cv2.GaussianBlur(a8, (3, 3), 0)
+            if preserve_detail:
+                a8 = cv2.GaussianBlur(a8, (3, 3), 0)
+            else:
+                a8 = cv2.GaussianBlur(a8, (5, 5), 0)
+                a8 = cv2.GaussianBlur(a8, (3, 3), 0)
 
             # 5. Moderate-strong sigmoid
             t = a8.astype(np.float32) * (1.0 / 255.0)
-            sig = self._sigmoid_strength * 0.60
+            sig = self._sigmoid_strength * (0.42 if preserve_detail else 0.60)
             mid = self._sigmoid_midpoint
             if sig > 0:
                 t = 1.0 / (1.0 + np.exp(-sig * (t - mid)))
 
             # 6. Core solidification
             result = t
-            core = result > 0.78
-            result[core] = 1.0 - (1.0 - result[core]) ** 2.2
-            result[result < 0.03] = 0.0
+            core = result > (0.82 if preserve_detail else 0.78)
+            result[core] = 1.0 - (1.0 - result[core]) ** (1.8 if preserve_detail else 2.2)
+            result[result < (0.025 if preserve_detail else 0.03)] = 0.0
             if preserve_holes is not None and preserve_holes.any():
                 result[preserve_holes] = np.minimum(result[preserve_holes], alpha[preserve_holes])
+            if preserve_slits is not None and preserve_slits.any():
+                result[preserve_slits] = np.minimum(result[preserve_slits], alpha[preserve_slits])
 
             # 7. Final feathering
             r_u8 = np.clip(result * 255, 0, 255).astype(np.uint8)
-            r_u8 = cv2.GaussianBlur(r_u8, (3, 3), 0)
+            if not preserve_detail:
+                r_u8 = cv2.GaussianBlur(r_u8, (3, 3), 0)
             result = r_u8.astype(np.float32) * (1.0 / 255.0)
+            if preserve_holes is not None and preserve_holes.any():
+                result[preserve_holes] = np.minimum(result[preserve_holes], alpha[preserve_holes])
+            if preserve_slits is not None and preserve_slits.any():
+                result[preserve_slits] = np.minimum(result[preserve_slits], alpha[preserve_slits])
         else:
             # 4. Wide dilate for blur/remove: 2 passes with 7x7
             dilate_k = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
@@ -2233,22 +2461,48 @@ class VideoEffects:
             # Build background
             if self._bg_mode == "blur":
                 bg = cv2.GaussianBlur(frame, (self._blur_strength, self._blur_strength), 0)
+                bg_gpu = cp.asarray(bg)
             elif self._bg_mode == "remove":
                 bg = np.zeros_like(frame)
                 bg[:, :, 1] = 255
                 bg[:, :, 3] = 255
+                bg_gpu = cp.asarray(bg)
             else:
                 bg = self._get_bg_image(frame, width, height)
+                bg_source_id = id(bg)
+                if (
+                    self._fused_bg_gpu is None
+                    or self._fused_bg_source_id != bg_source_id
+                    or self._fused_bg_size != (width, height)
+                ):
+                    self._fused_bg_gpu = cp.asarray(bg)
+                    self._fused_bg_source_id = bg_source_id
+                    self._fused_bg_size = (width, height)
+                bg_gpu = self._fused_bg_gpu
 
             # Upload all to GPU in one batch
             fg_gpu = cp.asarray(frame)
-            bg_gpu = cp.asarray(bg)
             alpha_gpu = cp.asarray(alpha, dtype=cp.float32)
             output_gpu = cp.empty_like(fg_gpu)
 
-            # Zero-filled arrays for unused features (no NULL pointers in CuPy)
-            face_mask_gpu = cp.zeros((height, width), dtype=cp.uint8)
-            vignette_gpu = cp.ones((height, width), dtype=cp.float32)
+            face_mask = self._fused_face_mask
+            vignette = self._fused_vignette
+            if face_mask is not None and face_mask.shape[:2] == (height, width):
+                face_mask_source_id = id(face_mask)
+                if self._fused_face_mask_gpu is None or self._fused_face_mask_source_id != face_mask_source_id:
+                    self._fused_face_mask_gpu = cp.asarray(face_mask, dtype=cp.uint8)
+                    self._fused_face_mask_source_id = face_mask_source_id
+                face_mask_gpu = self._fused_face_mask_gpu
+            else:
+                face_mask_gpu = cp.zeros((height, width), dtype=cp.uint8)
+            if vignette is not None and vignette.shape[:2] == (height, width):
+                vignette_source_id = id(vignette)
+                if self._fused_vignette_gpu is None or self._fused_vignette_source_id != vignette_source_id:
+                    self._fused_vignette_gpu = cp.asarray(vignette, dtype=cp.float32)
+                    self._fused_vignette_source_id = vignette_source_id
+                vignette_gpu = self._fused_vignette_gpu
+            else:
+                vignette_gpu = cp.ones((height, width), dtype=cp.float32)
 
             threads = 256
             blocks = (total + threads - 1) // threads
@@ -2256,11 +2510,11 @@ class VideoEffects:
                 fg_gpu, bg_gpu, alpha_gpu,
                 face_mask_gpu, vignette_gpu, output_gpu,
                 cp.int32(total),
-                cp.float32(0.0),   # enhance (handled by beautifier)
-                cp.float32(0.0),   # vignette (0 = no darkening)
-                cp.float32(0.0),   # brightness
-                cp.float32(0.0),   # contrast
-                cp.float32(0.0),   # warmth
+                cp.float32(self._fused_enhance_intensity),
+                cp.float32(self._fused_vignette_intensity),
+                cp.float32(self._fused_brightness),
+                cp.float32(self._fused_contrast),
+                cp.float32(self._fused_warmth),
             ))
             cp.cuda.Stream.null.synchronize()
 
@@ -2292,12 +2546,7 @@ class VideoEffects:
         self._use_fused_kernel = use_fused_kernel
         self._refresh_temporal_strength()
         if self._backend and hasattr(self._backend, '_MAX_INFER_HEIGHT'):
-            if use_tensorrt and use_fused_kernel:
-                new_h = 360   # Killer
-            elif use_tensorrt:
-                new_h = 480   # Zeus
-            else:
-                new_h = 720   # Standard/DocZeus
+            new_h = self._resolve_max_infer_height()
 
             reload_backend = False
             old_h = new_h

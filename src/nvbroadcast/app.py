@@ -81,6 +81,18 @@ _MODE_LABELS = {
     "cpu_low": "CPU - Low End",
 }
 
+_MODE_QUALITY_PRESETS = {
+    "doczeus": "quality",
+    "cuda_max": "quality",
+    "cuda_balanced": "balanced",
+    "zeus": "balanced",
+    "killer": "performance",
+    "cuda_perf": "performance",
+    "cpu_quality": "quality",
+    "cpu_light": "performance",
+    "cpu_low": "performance",
+}
+
 
 class NVBroadcastApp(Adw.Application):
     def __init__(self):
@@ -133,6 +145,7 @@ class NVBroadcastApp(Adw.Application):
         self._meeting_video_path = ""
         self._meeting_active = False
         self._meeting_finalizing = False
+        self._transcriber_preload_started = False
         self._vcam_device = None
         self._vcam_available = False
         self._mirror = True  # Default: mirror (like looking in a mirror)
@@ -232,7 +245,10 @@ class NVBroadcastApp(Adw.Application):
             else:
                 GLib.idle_add(self._finish_restore)
 
-            self._preload_transcriber()
+            if self.config.auto_start:
+                GLib.timeout_add_seconds(30, self._preload_transcriber_when_idle)
+            else:
+                self._preload_transcriber()
             self._maybe_check_for_updates()
 
         self._window.set_visible(True)
@@ -270,15 +286,26 @@ class NVBroadcastApp(Adw.Application):
         self._video_effects.set_compositing(compositing)
         self._beautifier.set_compositing(compositing)
         profile = PERFORMANCE_PROFILES[profile_name]
-        self._video_effects._skip_interval = profile["skip_interval"]
         self.config.mode_key = NVBroadcastWindow._profile_and_comp_to_mode(
             profile_name, compositing
         )
+        expected_quality = self._mode_quality_preset(self.config.mode_key)
+        if expected_quality:
+            self.config.video.quality_preset = expected_quality
+            self._video_effects._quality = expected_quality
         mapped = NVBroadcastWindow._MODE_MAP.get(self.config.mode_key)
         if mapped is not None:
             _, _, use_tensorrt, use_fused_kernel, use_nvdec = mapped
         else:
             use_tensorrt = use_fused_kernel = use_nvdec = False
+        self._video_effects.set_profile_infer_height(
+            self._profile_infer_height(
+                profile_name,
+                use_tensorrt=use_tensorrt,
+                use_fused_kernel=use_fused_kernel,
+            )
+        )
+        self._video_effects._skip_interval = profile["skip_interval"]
         self.config.use_tensorrt = use_tensorrt
         self.config.use_fused_kernel = use_fused_kernel
         self.config.use_nvdec = use_nvdec
@@ -290,6 +317,8 @@ class NVBroadcastApp(Adw.Application):
 
         # Rebuild mode dropdown with updated backends (e.g. CuPy just installed)
         self._window.rebuild_mode_selector(compositing, profile_name)
+        if hasattr(self._window, "_sync_quality_selector"):
+            self._window._sync_quality_selector()
         if hasattr(self._window, '_gpu_selector') and self._window._gpu_selector:
             self._window._gpu_selector.set_selected_index(gpu_index)
 
@@ -393,16 +422,30 @@ class NVBroadcastApp(Adw.Application):
 
     def _preload_transcriber(self):
         """Warm Whisper in the background so Start Meeting does not stall the UI."""
+        if self._transcriber_preload_started or self._transcriber.initialized:
+            return
         if not self._dependency_installer.is_available("whisper"):
             return
+
+        self._transcriber_preload_started = True
 
         def _init():
             try:
                 self._transcriber.initialize()
             except Exception as e:
                 print(f"[NV Broadcast] Meeting transcription preload failed: {e}")
+                self._transcriber_preload_started = False
 
         threading.Thread(target=_init, daemon=True).start()
+
+    def _preload_transcriber_when_idle(self):
+        """Avoid transcriber warmup while the live camera pipeline is already busy."""
+        if self._meeting_active or self._meeting_finalizing:
+            return False
+        if self._streaming:
+            return True
+        self._preload_transcriber()
+        return False
 
     def _maybe_show_python_runtime_notice(self):
         if self._window is None:
@@ -477,6 +520,11 @@ class NVBroadcastApp(Adw.Application):
         from nvbroadcast.core.config import PERFORMANCE_PROFILES
 
         c = self.config
+        normalized_quality = False
+        expected_quality = self._mode_quality_preset(c.mode_key)
+        if expected_quality and c.video.quality_preset != expected_quality:
+            c.video.quality_preset = expected_quality
+            normalized_quality = True
 
         # Restore model and quality preset
         self._video_effects._model_type = c.video.model
@@ -492,6 +540,13 @@ class NVBroadcastApp(Adw.Application):
             use_tensorrt = c.use_tensorrt
             use_fused_kernel = c.use_fused_kernel
             use_nvdec = c.use_nvdec
+        self._video_effects.set_profile_infer_height(
+            self._profile_infer_height(
+                c.performance_profile,
+                use_tensorrt=use_tensorrt,
+                use_fused_kernel=use_fused_kernel,
+            )
+        )
         self._video_effects.set_engine_mode(use_tensorrt, use_fused_kernel)
         self._use_nvdec = use_nvdec
         profile = PERFORMANCE_PROFILES.get(c.performance_profile, {})
@@ -552,6 +607,9 @@ class NVBroadcastApp(Adw.Application):
                 "Virtual camera not available. Run: "
                 'sudo modprobe v4l2loopback devices=1 video_nr=10 '
                 'card_label="NVIDIA Broadcast" exclusive_caps=1 max_buffers=4')
+
+        if normalized_quality:
+            save_config(c)
 
     def restore_current_config(self):
         """Replay the current config into UI and runtime under restore guards."""
@@ -726,6 +784,7 @@ class NVBroadcastApp(Adw.Application):
         if self._video_effects._backend:
             self._video_effects._backend.reset_state()
         self._beautifier._face_mask = None
+        self._beautifier._tone_mask = None
         self._beautifier._vignette_cache = None
         self._beautifier._face_bbox = None
         self._beautifier._face_center = None
@@ -788,15 +847,12 @@ class NVBroadcastApp(Adw.Application):
         import numpy as np
 
         self._perf_monitor.tick()
-        result = frame_data
-
-        # Inline-inference profiles own the alpha path entirely. The pipeline
-        # disables the background alpha worker in that mode to avoid cache races.
-        if self._video_effects.enabled:
-            if self._inline_inference:
-                result = self._video_effects.process_frame(result, width, height)
-            else:
-                result = self._video_effects.composite_only(result, width, height)
+        frame = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 4)
+        if not frame.flags.writeable:
+            frame = frame.copy()
+        result_frame = frame
+        landmarks = None
+        fused_beautify_overlay = False
 
         face_effects_active = (
             self._beautifier.enabled
@@ -804,46 +860,73 @@ class NVBroadcastApp(Adw.Application):
             or self._relighter.enabled
         )
         if face_effects_active:
-            landmarks = None
             landmarker = get_shared_landmarker()
+            raw_frame = result_frame
             if landmarker.ready:
                 landmarks = landmarker.request_async(
-                    np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4),
+                    raw_frame,
                     reuse_frames=self._landmark_reuse_frames(),
                 )
-
-            if self._beautifier.enabled:
-                result = self._beautifier.process_frame(
-                    result,
+            if (
+                self._beautifier.enabled
+                and self._video_effects.enabled
+                and self._video_effects._use_fused_kernel
+            ):
+                self._beautifier.prime_face_cache(
+                    raw_frame,
                     width,
                     height,
                     landmarks=landmarks,
                     allow_inline_landmarks=False,
                 )
+                overlay = self._beautifier.fused_overlay_inputs(width, height)
+                if overlay is not None:
+                    self._video_effects.set_fused_face_overlay(*overlay)
+                    fused_beautify_overlay = True
+                else:
+                    self._video_effects.set_fused_face_overlay(None, None)
+            elif self._video_effects.enabled:
+                self._video_effects.set_fused_face_overlay(None, None)
+        elif self._video_effects.enabled:
+            self._video_effects.set_fused_face_overlay(None, None)
 
-            frame = np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4)
-            if not frame.flags.writeable:
-                frame = frame.copy()
+        # Inline-inference profiles own the alpha path entirely. The pipeline
+        # disables the background alpha worker in that mode to avoid cache races.
+        if self._video_effects.enabled:
+            if self._inline_inference:
+                result_frame = self._video_effects.process_frame_array(result_frame, width, height)
+            else:
+                result_frame = self._video_effects.composite_only_array(result_frame, width, height)
+
+        if face_effects_active:
+            if self._beautifier.enabled:
+                result_frame = self._beautifier.process_frame_array(
+                    result_frame,
+                    width,
+                    height,
+                    landmarks=landmarks,
+                    allow_inline_landmarks=False,
+                    skip_enhance=fused_beautify_overlay,
+                    skip_edge_darken=fused_beautify_overlay,
+                    cache_prepared=fused_beautify_overlay,
+                )
 
             alpha_u8 = None
             if self._video_effects.enabled:
                 alpha_u8 = self._video_effects.latest_final_matte_u8(width, height)
 
             if self._eye_contact.enabled and landmarks is not None:
-                frame = self._eye_contact.process_frame(frame, landmarks=landmarks)
+                result_frame = self._eye_contact.process_frame(result_frame, landmarks=landmarks)
             if self._relighter.enabled and landmarks is not None:
-                frame = self._relighter.process_frame(frame, alpha_u8, landmarks=landmarks)
-
-            result = frame.tobytes()
+                result_frame = self._relighter.process_frame(result_frame, alpha_u8, landmarks=landmarks)
 
         if self._autoframe.enabled:
-            result = self._autoframe.process_frame(result, width, height)
+            result_frame = self._autoframe.process_frame_array(result_frame, width, height)
 
         # Mirror flip
         if self._mirror:
-            frame = np.frombuffer(result, dtype=np.uint8).reshape(height, width, 4)
-            result = cv2.flip(frame, 1).tobytes()
-        return result
+            result_frame = cv2.flip(result_frame, 1)
+        return result_frame.tobytes()
 
     def _any_video_effects_active(self) -> bool:
         return (self._video_effects.enabled or self._autoframe.enabled or
@@ -867,7 +950,7 @@ class NVBroadcastApp(Adw.Application):
         """Choose how aggressively to reuse shared face landmarks."""
         score = self._face_effect_load_score()
         if score >= 5 and not self._autoframe.enabled:
-            return 3
+            return 4
         return 2
 
     def _compute_inline_inference(self) -> bool:
@@ -952,6 +1035,13 @@ class NVBroadcastApp(Adw.Application):
         profile = PERFORMANCE_PROFILES[profile_name]
 
         # All settings apply immediately — no pipeline restart needed
+        self._video_effects.set_profile_infer_height(
+            self._profile_infer_height(
+                profile_name,
+                use_tensorrt=use_tensorrt,
+                use_fused_kernel=use_fused_kernel,
+            )
+        )
         self._video_effects._skip_interval = profile["skip_interval"]
         self._video_effects._apply_edge_config(self.config.video.edge)
 
@@ -988,6 +1078,11 @@ class NVBroadcastApp(Adw.Application):
             use_nvdec=nvdec,
             mode_key=mode_key,
         )
+        expected_quality = self._mode_quality_preset(mode_key)
+        if expected_quality:
+            self._video_effects.quality = expected_quality
+            self.config.video.quality_preset = expected_quality
+            save_config(self.config)
 
         if self._window is not None:
             is_premium = mode_key in ("killer", "zeus")
@@ -1000,6 +1095,8 @@ class NVBroadcastApp(Adw.Application):
                     toggle.active = desired
             if hasattr(self._window, "_sync_mode_selector"):
                 self._window._sync_mode_selector()
+            if hasattr(self._window, "_sync_quality_selector"):
+                self._window._sync_quality_selector()
             if status:
                 self._window.set_status(status)
             else:
@@ -1070,6 +1167,38 @@ class NVBroadcastApp(Adw.Application):
     def _mode_label(self, mode_key: str) -> str:
         """Return a human-readable label for a mode."""
         return _MODE_LABELS.get(mode_key, mode_key)
+
+    def _mode_quality_preset(self, mode_key: str) -> str | None:
+        """Return the expected RVM quality preset for a stable named mode."""
+        return _MODE_QUALITY_PRESETS.get(mode_key)
+
+    def _profile_infer_height(
+        self,
+        profile_name: str,
+        *,
+        use_tensorrt: bool | None = None,
+        use_fused_kernel: bool | None = None,
+    ) -> int:
+        """Return the target infer-height cap for the active profile/mode."""
+        from nvbroadcast.core.config import PERFORMANCE_PROFILES
+
+        profile = PERFORMANCE_PROFILES.get(profile_name, {})
+        scale = float(profile.get("process_scale", 1.0))
+        source_h = max(1, int(self.config.video.height))
+        infer_h = int(round(source_h * scale)) & ~1
+        infer_h = max(240, min(720, infer_h))
+
+        if use_tensorrt is None:
+            use_tensorrt = self.config.use_tensorrt
+        if use_fused_kernel is None:
+            use_fused_kernel = self.config.use_fused_kernel
+
+        # Fused non-TRT fast mode stays quality-sensitive around hair and hand
+        # gaps. A 360p floor is a better live tradeoff than dropping all the
+        # way to the raw 0.5 scale on 480p/576p inputs.
+        if profile_name == "performance" and use_fused_kernel and not use_tensorrt:
+            infer_h = max(360, infer_h)
+        return infer_h
 
     @staticmethod
     def _is_very_weak_device(caps: dict) -> bool:

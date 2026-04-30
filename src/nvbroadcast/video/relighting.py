@@ -84,6 +84,7 @@ class FaceRelighter:
         face_mask = np.zeros((y2 - y1, x2 - x1), dtype=np.float32)
         cv2.fillConvexPoly(face_mask, local_hull, 1.0)
         face_mask = cv2.GaussianBlur(face_mask, (0, 0), sigmaX=6)
+        face_mask = self._build_tone_mask(face_mask, y - y1, fh)
 
         # Face luminance (ROI only)
         face_gray = cv2.cvtColor(roi, cv2.COLOR_BGR2GRAY).astype(np.float32)
@@ -127,6 +128,44 @@ class FaceRelighter:
         blended = roi.astype(np.float32) * (1.0 - mask3) + adjusted * mask3
         output[y1:y2, x1:x2, :3] = np.clip(blended, 0, 255).astype(np.uint8)
         return output
+
+    @staticmethod
+    def _apply_hairline_taper(face_mask: np.ndarray, top: int, face_height: int) -> np.ndarray:
+        """Fade relighting out before it reaches the upper hairline."""
+        if face_mask is None or face_height < 8:
+            return face_mask
+        height = face_mask.shape[0]
+        start = max(0, top)
+        end = min(height, top + max(6, int(face_height * 0.24)))
+        if end <= start:
+            return face_mask
+        tapered = face_mask.copy()
+        ramp = np.linspace(0.30, 1.0, end - start, dtype=np.float32)[:, np.newaxis]
+        tapered[start:end, :] *= ramp
+        return tapered
+
+    @staticmethod
+    def _build_tone_mask(face_mask: np.ndarray, top: int, face_height: int) -> np.ndarray:
+        """Build a tighter relighting mask that stays off upper and side hair."""
+        if face_mask is None:
+            return None
+        tone_mask = FaceRelighter._apply_hairline_taper(face_mask, top, face_height)
+
+        tone_u8 = np.clip(tone_mask * 255.0, 0, 255).astype(np.uint8)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        tone_u8 = cv2.erode(tone_u8, kernel, iterations=1)
+        tone_mask = tone_u8.astype(np.float32) / 255.0
+
+        height, width = tone_mask.shape[:2]
+        start = max(0, top)
+        upper_end = min(height, top + max(6, int(face_height * 0.28)))
+        if upper_end > start:
+            x = np.linspace(-1.0, 1.0, width, dtype=np.float32)
+            side_ramp = 0.72 + 0.28 * (1.0 - np.abs(x))
+            tone_mask[start:upper_end, :] *= side_ramp[np.newaxis, :]
+
+        tone_mask = cv2.GaussianBlur(tone_mask, (0, 0), sigmaX=3)
+        return np.clip(tone_mask, 0.0, 1.0)
 
     def _analyze_background(self, frame: np.ndarray, alpha=None):
         h, w = frame.shape[:2]

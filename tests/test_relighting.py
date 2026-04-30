@@ -51,7 +51,24 @@ class FaceRelightingTests(unittest.TestCase):
 
         before = float(frame[24:72, 24:72, :3].mean())
         after = float(output[24:72, 24:72, :3].mean())
-        self.assertGreater(after, before + 10.0)
+        self.assertGreater(after, before + 8.0)
+
+    def test_hairline_taper_reduces_upper_face_mask_strength(self):
+        mask = np.ones((20, 20), dtype=np.float32)
+
+        tapered = FaceRelighter._apply_hairline_taper(mask, top=2, face_height=12)
+
+        self.assertLess(float(tapered[2, 10]), float(tapered[10, 10]))
+        self.assertGreater(float(tapered[10, 10]), 0.8)
+
+    def test_tone_mask_stays_lower_and_inward_vs_base_mask(self):
+        mask = np.ones((24, 24), dtype=np.float32)
+
+        tone_mask = FaceRelighter._build_tone_mask(mask, top=4, face_height=14)
+
+        self.assertLess(float(tone_mask[4, 12]), float(tone_mask[12, 12]))
+        self.assertLess(float(tone_mask[6, 1]), float(tone_mask[6, 12]))
+        self.assertLess(float(tone_mask[4, 12]), 0.70)
 
 
 if __name__ == "__main__":

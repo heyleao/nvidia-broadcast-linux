@@ -108,6 +108,11 @@ class SharedFaceLandmarker:
         self._lock = threading.Lock()
         self._detect_lock = threading.Lock()
         self._async_busy = False
+        self._pending_job = None
+        self._pending_frame_id = None
+        self._worker_event = threading.Event()
+        self._worker_stop = False
+        self._worker_thread = None
         self._mp = None
         self._init()
 
@@ -138,6 +143,12 @@ class SharedFaceLandmarker:
             )
             self._landmarker = FaceLandmarker.create_from_options(opts)
             self._initialized = True
+            self._worker_thread = threading.Thread(
+                target=self._async_loop,
+                name="nvbroadcast.face_landmarks",
+                daemon=True,
+            )
+            self._worker_thread.start()
             print("[FaceLandmarks] Shared landmarker initialized")
         except Exception as e:
             print(f"[FaceLandmarks] Init failed: {e}")
@@ -176,19 +187,15 @@ class SharedFaceLandmarker:
                 self._last_frame_id = frame_id
                 return cached
 
-            if self._async_busy:
-                self._last_frame_id = frame_id
+            if frame_id == self._pending_frame_id:
                 return cached
 
-            frame_copy = bgra_frame.copy()
+        frame_copy = bgra_frame.copy()
+        with self._lock:
+            self._pending_job = frame_copy
+            self._pending_frame_id = frame_id
             self._async_busy = True
-            self._last_frame_id = frame_id
-
-        threading.Thread(
-            target=self._detect_async,
-            args=(frame_copy, frame_id),
-            daemon=True,
-        ).start()
+            self._worker_event.set()
         return cached
 
     def detect(self, bgra_frame: np.ndarray, reuse_frames: int = 1):
@@ -223,31 +230,49 @@ class SharedFaceLandmarker:
             self._frames_since_infer = 0
         return landmarks
 
-    def _detect_async(self, bgra_frame: np.ndarray, frame_id: int):
-        """Background worker for non-blocking landmark refresh."""
-        try:
-            with self._detect_lock:
-                landmarks = self._run_detection(bgra_frame)
-            with self._lock:
-                self._last_frame_id = frame_id
-                self._last_result = landmarks
-                self._frames_since_infer = 0
-        finally:
+    def _async_loop(self):
+        """Single background worker that always processes the newest frame."""
+        while True:
+            self._worker_event.wait()
+            self._worker_event.clear()
+            if self._worker_stop:
+                return
+
+            while True:
+                with self._lock:
+                    frame = self._pending_job
+                    frame_id = self._pending_frame_id
+                    self._pending_job = None
+                    self._pending_frame_id = None
+                if frame is None:
+                    break
+
+                with self._detect_lock:
+                    landmarks = self._run_detection(frame)
+                with self._lock:
+                    self._last_frame_id = frame_id
+                    self._last_result = landmarks
+                    self._frames_since_infer = 0
+
             with self._lock:
                 self._async_busy = False
 
-    def _run_detection(self, bgra_frame: np.ndarray):
-        """Run MediaPipe face landmark detection on a frame."""
+    @staticmethod
+    def _scale_detection_frame(bgra_frame: np.ndarray) -> np.ndarray:
+        """Clamp large inference inputs without over-downscaling face crops."""
         h, w = bgra_frame.shape[:2]
-        if w >= 640 or h >= 360:
-            scaled = cv2.resize(
-                bgra_frame,
-                (max(1, w // 2), max(1, h // 2)),
-                interpolation=cv2.INTER_AREA,
-            )
-        else:
-            scaled = bgra_frame
+        max_dim = max(w, h)
+        if max_dim <= 512:
+            return bgra_frame
+        scale = 512.0 / float(max_dim)
+        return cv2.resize(
+            bgra_frame,
+            (max(1, int(round(w * scale))), max(1, int(round(h * scale)))),
+            interpolation=cv2.INTER_AREA,
+        )
 
+    def _detect_in_frame(self, bgra_frame: np.ndarray):
+        scaled = self._scale_detection_frame(bgra_frame)
         rgb = cv2.cvtColor(scaled, cv2.COLOR_BGRA2RGB)
         ts = int(time.monotonic() * 1000)
         mp_image = self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=rgb)
@@ -260,3 +285,6 @@ class SharedFaceLandmarker:
         if result.face_landmarks:
             return result.face_landmarks[0]
         return None
+
+    def _run_detection(self, bgra_frame: np.ndarray):
+        return self._detect_in_frame(bgra_frame)

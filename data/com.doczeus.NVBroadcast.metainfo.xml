@@ -62,6 +62,17 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.1.7" date="2026-04-29">
+      <description>
+        <p>Live edge quality and microphone reliability patch</p>
+        <ul>
+          <li>Improved background replace around hair edges, finger gaps, and hands near the body during motion</li>
+          <li>Reduced beautify and relighting spill into head hair so hair looks more natural and less washed out</li>
+          <li>Kept the exported nvbroadcast microphone available even when voice effects and noise removal are turned off</li>
+          <li>Rechecked audio, video, meeting transcription, summaries, and packaging paths before release</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.6" date="2026-04-29">
       <description>
         <p>Live background performance and stability patch</p>

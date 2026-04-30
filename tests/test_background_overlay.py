@@ -326,6 +326,7 @@ class BackgroundOverlayTests(unittest.TestCase):
     def test_refine_alpha_closes_broad_internal_gap_in_replace_mode(self):
         effects = self._make_effects()
         effects._bg_mode = "replace"
+        effects._quality = "performance"
 
         alpha = np.zeros((11, 11), dtype=np.float32)
         alpha[1:10, 1:10] = 0.95
@@ -337,6 +338,23 @@ class BackgroundOverlayTests(unittest.TestCase):
             float(refined[5, 5]),
             0.80,
             "replace refinement should close broad artifact holes inside the silhouette",
+        )
+
+    def test_refine_alpha_quality_preserves_narrow_hairline_gap(self):
+        effects = self._make_effects()
+        effects._bg_mode = "replace"
+        effects._quality = "quality"
+
+        alpha = np.zeros((15, 15), dtype=np.float32)
+        alpha[2:14, 3:12] = 0.95
+        alpha[2:8, 7:8] = 0.02
+
+        refined = effects._refine_alpha(alpha)
+
+        self.assertLess(
+            float(refined[4, 7]),
+            0.25,
+            "quality replace refinement should preserve narrow hairline openings",
         )
 
     def test_replace_matte_preserves_narrow_hairline_gap(self):
@@ -370,6 +388,70 @@ class BackgroundOverlayTests(unittest.TestCase):
             float(matte[4, 7]),
             0.55,
             "replacement temporal smoothing should not keep narrow gaps shut after they open",
+        )
+
+    def test_quality_replace_matte_reopens_gap_more_tightly_than_performance(self):
+        quality = self._make_effects()
+        quality._bg_mode = "replace"
+        quality._quality = "quality"
+
+        performance = self._make_effects()
+        performance._bg_mode = "replace"
+        performance._quality = "performance"
+
+        alpha_closed = np.zeros((15, 15), dtype=np.float32)
+        alpha_closed[2:14, 3:12] = 0.95
+
+        alpha_open = alpha_closed.copy()
+        alpha_open[2:8, 7:8] = 0.02
+
+        quality._replacement_matte(alpha_closed)
+        performance._replacement_matte(alpha_closed)
+        quality_gap = quality._replacement_matte(alpha_open)
+        performance_gap = performance._replacement_matte(alpha_open)
+
+        self.assertLess(
+            float(quality_gap[4, 7]),
+            float(performance_gap[4, 7]),
+            "quality replace mode should preserve fine reopened gaps more tightly than performance mode",
+        )
+
+    def test_refine_alpha_preserves_narrow_exterior_finger_gap(self):
+        effects = self._make_effects()
+        effects._bg_mode = "replace"
+
+        alpha = np.zeros((21, 21), dtype=np.float32)
+        alpha[3:18, 6:9] = 0.95
+        alpha[3:18, 10:13] = 0.95
+
+        refined = effects._refine_alpha(alpha)
+
+        self.assertLess(
+            float(refined[10, 9]),
+            0.55,
+            "replace refinement should keep narrow exterior finger gaps open",
+        )
+
+    def test_refine_alpha_preserves_arm_torso_exterior_gap(self):
+        effects = self._make_effects()
+        effects._bg_mode = "replace"
+
+        alpha = np.zeros((25, 25), dtype=np.float32)
+        alpha[4:22, 5:11] = 0.95
+        alpha[8:22, 13:20] = 0.95
+        alpha[18:22, 10:14] = 0.95
+
+        refined = effects._refine_alpha(alpha)
+
+        self.assertLess(
+            float(refined[12, 12]),
+            0.60,
+            "replace refinement should keep the raised-arm torso opening visible",
+        )
+        self.assertGreater(
+            float(refined[19, 12]),
+            0.80,
+            "real hand-body contact should stay connected where the silhouette is actually closed",
         )
 
     def test_despill_skips_near_solid_subject_pixels(self):
@@ -540,6 +622,66 @@ class BackgroundOverlayTests(unittest.TestCase):
 
         self.assertGreater(float(final[4, 4]), float(heuristic[4, 4]), "learned refiner should be able to modify final replace matte")
 
+    def test_final_matte_quality_preserves_narrow_finger_gap(self):
+        effects = self._make_effects()
+        effects._bg_mode = "replace"
+        effects._quality = "quality"
+
+        frame = np.zeros((21, 21, 4), dtype=np.uint8)
+        frame[:, :, 3] = 255
+        alpha = np.zeros((21, 21), dtype=np.float32)
+        alpha[3:18, 6:9] = 0.95
+        alpha[3:18, 10:13] = 0.95
+
+        refined = effects._refine_alpha(alpha)
+        final = effects._final_matte(frame, refined)
+
+        self.assertLess(
+            float(final[10, 9]),
+            0.20,
+            "quality final matte should keep narrow finger gaps from being blurred shut",
+        )
+
+    def test_final_matte_quality_preserves_hairline_gap(self):
+        effects = self._make_effects()
+        effects._bg_mode = "replace"
+        effects._quality = "quality"
+
+        frame = np.zeros((15, 15, 4), dtype=np.uint8)
+        frame[:, :, 3] = 255
+        alpha = np.zeros((15, 15), dtype=np.float32)
+        alpha[2:14, 3:12] = 0.95
+        alpha[2:8, 7:8] = 0.02
+
+        refined = effects._refine_alpha(alpha)
+        final = effects._final_matte(frame, refined)
+
+        self.assertLess(
+            float(final[4, 7]),
+            0.20,
+            "quality final matte should keep narrow hairline openings from being blurred shut",
+        )
+
+    def test_final_matte_quality_still_closes_broad_internal_hole(self):
+        effects = self._make_effects()
+        effects._bg_mode = "replace"
+        effects._quality = "quality"
+
+        frame = np.zeros((11, 11, 4), dtype=np.uint8)
+        frame[:, :, 3] = 255
+        alpha = np.zeros((11, 11), dtype=np.float32)
+        alpha[1:10, 1:10] = 0.95
+        alpha[4:7, 4:7] = 0.01
+
+        refined = effects._refine_alpha(alpha)
+        final = effects._final_matte(frame, refined)
+
+        self.assertGreater(
+            float(final[5, 5]),
+            0.65,
+            "quality final matte should still close broad interior artifact holes",
+        )
+
     def test_composite_caches_latest_final_matte_for_followup_effects(self):
         effects = self._make_effects()
         effects._bg_mode = "replace"
@@ -557,6 +699,34 @@ class BackgroundOverlayTests(unittest.TestCase):
         self.assertIsNotNone(latest, "composite should cache the final matte for same-frame followup effects")
         self.assertEqual(latest.shape, (8, 8))
         self.assertGreater(int(latest[4, 4]), 0)
+
+    def test_replace_matte_cache_tracks_committed_alpha_generation(self):
+        effects = self._make_effects()
+        calls = []
+        original = effects._replacement_matte
+
+        def _counted(alpha, matte_version=None):
+            calls.append(alpha.copy())
+            return original(alpha, matte_version)
+
+        effects._replacement_matte = _counted
+
+        alpha1 = np.zeros((8, 8), dtype=np.float32)
+        alpha1[:, 3:6] = 0.7
+        effects._commit_alpha(alpha1, effects._matte_version)
+        matte1_first = effects._replacement_matte_cached(alpha1, effects._matte_version)
+        matte1_second = effects._replacement_matte_cached(alpha1, effects._matte_version)
+
+        self.assertEqual(len(calls), 1, "same committed alpha should reuse the cached replacement matte")
+        self.assertTrue(np.array_equal(matte1_first, matte1_second))
+
+        alpha2 = alpha1.copy()
+        alpha2[:, 2:6] = 0.7
+        effects._commit_alpha(alpha2, effects._matte_version)
+        matte2 = effects._replacement_matte_cached(alpha2, effects._matte_version)
+
+        self.assertEqual(len(calls), 2, "a newly committed alpha must rebuild the replacement matte")
+        self.assertFalse(np.array_equal(matte1_first, matte2))
 
 
 if __name__ == "__main__":

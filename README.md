@@ -42,6 +42,15 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
+### v1.1.7 — Live Edge and Mic Reliability Patch
+
+- **Cleaner Hair and Hand Edges** — Background replace now holds hair edges, finger gaps, and hands near the body more cleanly during motion
+- **Less Face-Effect Spill Into Hair** — Beautify and relighting stay lower on the face, so head hair and side hair look less bright and washed out
+- **Mic Always Ready** — The exported `nvbroadcast` microphone now stays available even when voice effects and noise removal are turned off
+- **Broader Release Verification** — This release was rechecked across video, audio, meeting transcription, summaries, packaging metadata, and release smoke before shipping
+
+> If you are still on `v1.1.6` or older, update to `v1.1.7`. This is the recommended stable patch for current live edge quality and microphone reliability.
+
 ### v1.1.6 — Live Background Performance and Stability Patch
 
 - **Fixed Background Reset Loops** — The live alpha path now uses one dedicated worker instead of bouncing inference across short-lived threads, which stops the CUDA invalid-resource-handle failures that could make replace mode collapse into repeated RVM resets
@@ -585,7 +594,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.1.6)
+│   ├── __init__.py              # Package version (1.1.7)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -618,7 +627,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v1.1.6)
+├── pyproject.toml               # Package config (v1.1.7)
 └── README.md
 ```
 

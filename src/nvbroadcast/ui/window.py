@@ -991,7 +991,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         "cuda_balanced": ("balanced",   "cupy", False, False, False),
         "zeus":         ("balanced",    "cupy", True,  False, False),
         "killer":       ("performance", "cupy", True,  True,  True),
-        "cuda_perf":    ("performance", "cupy", False, False, False),
+        "cuda_perf":    ("performance", "cupy", False, True,  False),
         "cpu_quality":  ("max_quality", "cpu",  False, False, False),
         "cpu_light":    ("performance", "cpu",  False, False, False),
         "cpu_low":      ("potato",      "cpu",  False, False, False),
@@ -1006,7 +1006,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             "cuda_balanced": "CUDA Balanced: good quality with lighter GPU load",
             "zeus": "Zeus: fast GPU mode with TensorRT and edge refine",
             "killer": "Killer: fastest GPU mode, softer edges under motion",
-            "cuda_perf": "CUDA Fast: lower GPU cost, reduced edge quality",
+            "cuda_perf": "CUDA Fast: fused compositor with lighter matting for higher live FPS",
             "cpu_quality": "CPU High Quality: most compatible, highest CPU cost",
             "cpu_light": "CPU Fast: reduced CPU cost with lower quality",
             "cpu_low": "CPU Low End: fallback mode for weaker systems",
@@ -1067,6 +1067,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             if d["device"] == mode_key:
                 self._profile_selector.set_selected_index(i)
                 break
+
+    def _sync_quality_selector(self):
+        quality_map = {"performance": 0, "balanced": 1, "quality": 2, "ultra": 3}
+        idx = quality_map.get(self._app.config.video.quality_preset)
+        if idx is not None:
+            self._quality_selector.set_selected_index(idx)
 
     def _on_mode_changed_selector(self, selector, mode_key):
         if getattr(self._app, '_restoring', False):

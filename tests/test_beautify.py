@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 import numpy as np
 
@@ -75,6 +76,64 @@ class BeautifyTests(unittest.TestCase):
             "fast motion should heavily reduce temporal blending so the face does not ghost",
         )
         self.assertTrue(np.array_equal(before, np.zeros_like(before)))
+
+    def test_skin_smooth_skips_on_very_fast_face_motion(self):
+        beautifier = self._make_beautifier()
+        beautifier.skin_smooth = 0.3
+        beautifier._face_motion_px = 24.0
+
+        frame = np.zeros((8, 8, 4), dtype=np.uint8)
+        frame[:, :, 3] = 255
+
+        with mock.patch("cv2.bilateralFilter") as bilateral:
+            result = beautifier._apply_skin_smooth(frame.copy())
+
+        self.assertTrue(np.array_equal(result, frame))
+        bilateral.assert_not_called()
+
+    def test_denoise_skips_temporal_work_on_fast_face_motion(self):
+        beautifier = self._make_beautifier()
+        beautifier.denoise = 0.4
+        beautifier._face_motion_px = 24.0
+        beautifier._prev_frame = np.full((8, 8, 3), 200, dtype=np.uint8)
+
+        frame = np.zeros((8, 8, 4), dtype=np.uint8)
+        frame[:, :, 3] = 255
+
+        with mock.patch("cv2.absdiff") as absdiff:
+            result = beautifier._apply_denoise(frame.copy())
+
+        self.assertTrue(np.array_equal(result[:, :, :3], frame[:, :, :3]))
+        absdiff.assert_not_called()
+
+    def test_hairline_taper_reduces_upper_face_mask_strength(self):
+        mask = np.full((20, 20), 255, dtype=np.uint8)
+
+        tapered = FaceBeautifier._apply_hairline_taper(mask, top=2, face_height=12)
+
+        self.assertLess(int(tapered[2, 10]), int(tapered[10, 10]))
+        self.assertGreater(int(tapered[10, 10]), 200)
+
+    def test_tone_mask_stays_lower_and_inward_vs_detail_mask(self):
+        mask = np.full((24, 24), 255, dtype=np.uint8)
+
+        tone_mask = FaceBeautifier._build_tone_mask(mask, top=4, face_height=14)
+
+        self.assertLess(int(tone_mask[4, 12]), int(tone_mask[12, 12]))
+        self.assertLess(int(tone_mask[6, 1]), int(tone_mask[6, 12]))
+        self.assertLess(int(tone_mask[4, 12]), 180)
+
+    def test_fused_overlay_inputs_use_tone_mask_for_enhance(self):
+        beautifier = self._make_beautifier()
+        beautifier.enhance = 0.5
+        beautifier._face_center = (4, 4)
+        beautifier._tone_mask = np.zeros((8, 8), dtype=np.uint8)
+        beautifier._tone_mask[3:5, 3:5] = 255
+
+        overlay = beautifier.fused_overlay_inputs(8, 8)
+
+        self.assertIsNotNone(overlay)
+        self.assertTrue(np.array_equal(overlay[0], beautifier._tone_mask))
 
 
 if __name__ == "__main__":

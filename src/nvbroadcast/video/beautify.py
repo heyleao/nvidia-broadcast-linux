@@ -70,11 +70,16 @@ class FaceBeautifier:
 
         # Cached face data
         self._face_mask = None
+        self._tone_mask = None
         self._face_bbox = None
         self._face_center = None
+        self._face_motion_px = 0.0
         self._prev_frame = None  # For temporal denoising
         self._vignette_cache = None  # Cached vignette gradient
         self._vignette_size = None
+        self._vignette_center = None
+        self._vignette_rgb_cache = None
+        self._vignette_rgb_intensity = None
         self._frame_counter = 0
 
     @property
@@ -170,33 +175,63 @@ class FaceBeautifier:
         height: int,
         landmarks=None,
         allow_inline_landmarks: bool = True,
+        skip_enhance: bool = False,
+        skip_edge_darken: bool = False,
+        cache_prepared: bool = False,
     ) -> bytes:
         """Apply beautification effects to a BGRA frame."""
-        if not self._enabled or not self._initialized:
+        frame = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 4)
+        result = self.process_frame_array(
+            frame,
+            width,
+            height,
+            landmarks=landmarks,
+            allow_inline_landmarks=allow_inline_landmarks,
+            skip_enhance=skip_enhance,
+            skip_edge_darken=skip_edge_darken,
+            cache_prepared=cache_prepared,
+        )
+        if result is frame:
             return frame_data
+        return result.tobytes()
+
+    def process_frame_array(
+        self,
+        frame: np.ndarray,
+        width: int,
+        height: int,
+        landmarks=None,
+        allow_inline_landmarks: bool = True,
+        skip_enhance: bool = False,
+        skip_edge_darken: bool = False,
+        cache_prepared: bool = False,
+    ) -> np.ndarray:
+        """Apply beautification effects to a BGRA frame ndarray."""
+        if not self._enabled or not self._initialized:
+            return frame
 
         # Any effect active?
         if (self._skin_smooth <= 0 and self._denoise <= 0 and
-                self._edge_darken <= 0 and self._enhance <= 0 and
+                (self._edge_darken <= 0 or skip_edge_darken) and
+                (self._enhance <= 0 or skip_enhance) and
                 self._sharpen <= 0):
-            return frame_data
-
-        frame = np.frombuffer(frame_data, dtype=np.uint8).reshape(height, width, 4)
+            return frame
         if not frame.flags.writeable:
             frame = frame.copy()
 
-        self._frame_counter += 1
+        if not cache_prepared:
+            self._frame_counter += 1
 
-        # Refresh mask periodically. Landmark inference itself is shared across
-        # all face effects, so this only rebuilds the beautify mask.
-        if self._frame_counter % 5 == 0 or self._face_mask is None:
-            self._detect_face(
-                frame,
-                width,
-                height,
-                landmarks,
-                allow_inline_landmarks=allow_inline_landmarks,
-            )
+            # Refresh mask periodically. Landmark inference itself is shared across
+            # all face effects, so this only rebuilds the beautify mask.
+            if self._frame_counter % 5 == 0 or self._face_mask is None:
+                self._detect_face(
+                    frame,
+                    width,
+                    height,
+                    landmarks,
+                    allow_inline_landmarks=allow_inline_landmarks,
+                )
 
         # CPU-only operations first (bilateral has no GPU equivalent)
         if self._denoise > 0:
@@ -207,19 +242,82 @@ class FaceBeautifier:
 
         # Batch GPU-eligible operations (enhance + sharpen + vignette)
         if self._cupy is not None:
-            frame = self._apply_gpu_batch(frame, width, height)
+            frame = self._apply_gpu_batch(
+                frame,
+                width,
+                height,
+                apply_enhance=not skip_enhance,
+                apply_edge_darken=not skip_edge_darken,
+            )
         else:
-            if self._enhance > 0 and self._face_mask is not None:
+            if not skip_enhance and self._enhance > 0 and self._face_mask is not None:
                 frame = self._apply_enhance(frame)
             if self._sharpen > 0 and self._face_mask is not None:
                 frame = self._apply_sharpen(frame)
-            if self._edge_darken > 0:
+            if not skip_edge_darken and self._edge_darken > 0:
                 frame = self._apply_edge_darken(frame, width, height)
 
-        return frame.tobytes()
+        return frame
+
+    def prime_face_cache(
+        self,
+        frame: np.ndarray,
+        width: int,
+        height: int,
+        landmarks=None,
+        allow_inline_landmarks: bool = True,
+    ) -> None:
+        """Refresh cached face geometry without applying beautify effects."""
+        if not self._enabled or not self._initialized:
+            return
+        self._frame_counter += 1
+        if self._frame_counter % 5 == 0 or self._face_mask is None:
+            self._detect_face(
+                frame,
+                width,
+                height,
+                landmarks,
+                allow_inline_landmarks=allow_inline_landmarks,
+            )
+
+    def fused_overlay_inputs(self, width: int, height: int):
+        """Return cached overlay data for fused background compositing."""
+        if not self._enabled or self._face_mask is None:
+            return None
+        if self._enhance <= 0 and self._edge_darken <= 0:
+            return None
+        if self._edge_darken > 0:
+            current_center = self._face_center or (width // 2, height // 2)
+            center_shift = 0
+            if self._vignette_center is not None:
+                center_shift = max(
+                    abs(current_center[0] - self._vignette_center[0]),
+                    abs(current_center[1] - self._vignette_center[1]),
+                )
+            if (
+                self._vignette_cache is None
+                or self._vignette_size != (width, height)
+                or center_shift > max(8, min(width, height) // 64)
+            ):
+                self._build_vignette_cache(width, height)
+        brightness = self._enhance * 15.0
+        contrast = self._enhance * 0.2
+        warmth = self._enhance * 8.0
+        tone_mask = self._tone_mask if self._tone_mask is not None else self._face_mask
+        return (
+            tone_mask,
+            self._vignette_cache,
+            float(self._enhance),
+            float(self._edge_darken),
+            float(brightness),
+            float(contrast),
+            float(warmth),
+        )
 
     def _apply_gpu_batch(self, frame: np.ndarray,
-                         width: int, height: int) -> np.ndarray:
+                         width: int, height: int,
+                         apply_enhance: bool = True,
+                         apply_edge_darken: bool = True) -> np.ndarray:
         """Batch ROI-local enhance/sharpen on GPU; keep full-frame vignette on CPU.
 
         Uploading the whole frame for beautify adds a large round-trip cost at
@@ -230,9 +328,10 @@ class FaceBeautifier:
         cp = self._cupy
         try:
             bbox = self._face_bbox
-            mask = self._face_mask
-            if bbox is None or mask is None:
-                if self._edge_darken > 0:
+            detail_mask = self._face_mask
+            tone_mask = self._tone_mask if self._tone_mask is not None else detail_mask
+            if bbox is None or detail_mask is None:
+                if apply_edge_darken and self._edge_darken > 0:
                     return self._apply_edge_darken(frame, width, height)
                 return frame
 
@@ -241,17 +340,18 @@ class FaceBeautifier:
             y1, y2 = max(0, y - pad), min(height, y + h + pad)
             x1, x2 = max(0, x - pad), min(width, x + w + pad)
             if x2 <= x1 or y2 <= y1:
-                if self._edge_darken > 0:
+                if apply_edge_darken and self._edge_darken > 0:
                     return self._apply_edge_darken(frame, width, height)
                 return frame
 
             roi = frame[y1:y2, x1:x2, :3]
             roi_gpu = cp.asarray(roi, dtype=cp.float32)
-            roi_mask = mask[y1:y2, x1:x2]
+            detail_roi_mask = detail_mask[y1:y2, x1:x2]
+            tone_roi_mask = tone_mask[y1:y2, x1:x2] if tone_mask is not None else detail_roi_mask
 
-            if self._enhance > 0:
+            if apply_enhance and self._enhance > 0:
                 intensity = self._enhance
-                mask_gpu = cp.asarray(roi_mask, dtype=cp.float32)[:, :, cp.newaxis] / 255.0 * intensity
+                mask_gpu = cp.asarray(tone_roi_mask, dtype=cp.float32)[:, :, cp.newaxis] / 255.0 * intensity
                 enhanced = (roi_gpu - 128) * (1.0 + intensity * 0.2) + 128 + intensity * 15
                 enhanced[:, :, 2] += intensity * 8
                 enhanced[:, :, 1] += intensity * 8 * 0.3
@@ -263,11 +363,11 @@ class FaceBeautifier:
                 blurred = cp.mean(roi_gpu.reshape(-1, roi_gpu.shape[-1]), axis=0)
                 amount = 0.5 + intensity * 1.5
                 roi_sharp = roi_gpu + (roi_gpu - blurred) * amount * 0.1
-                mask_gpu = cp.asarray(roi_mask, dtype=cp.float32)[:, :, cp.newaxis] / 255.0 * intensity
+                mask_gpu = cp.asarray(detail_roi_mask, dtype=cp.float32)[:, :, cp.newaxis] / 255.0 * intensity
                 roi_gpu = roi_gpu * (1 - mask_gpu) + cp.clip(roi_sharp, 0, 255) * mask_gpu
 
             frame[y1:y2, x1:x2, :3] = cp.asnumpy(cp.clip(roi_gpu, 0, 255).astype(cp.uint8))
-            if self._edge_darken > 0:
+            if apply_edge_darken and self._edge_darken > 0:
                 frame = self._apply_edge_darken(frame, width, height)
             return frame
 
@@ -276,11 +376,11 @@ class FaceBeautifier:
                 print(f"[NV Broadcast] GPU beautify failed, using CPU: {e}")
             self._compositing = "cpu"
             # Fallback to CPU path
-            if self._enhance > 0 and self._face_mask is not None:
+            if apply_enhance and self._enhance > 0 and self._face_mask is not None:
                 frame = self._apply_enhance(frame)
             if self._sharpen > 0 and self._face_mask is not None:
                 frame = self._apply_sharpen(frame)
-            if self._edge_darken > 0:
+            if apply_edge_darken and self._edge_darken > 0:
                 frame = self._apply_edge_darken(frame, width, height)
             return frame
 
@@ -296,6 +396,9 @@ class FaceBeautifier:
         dist = np.sqrt(dx * dx + dy * dy)
         self._vignette_cache = np.clip(1.0 - (dist - 0.3) * 0.8, 0.3, 1.0).astype(np.float32)
         self._vignette_size = (width, height)
+        self._vignette_center = (cx, cy)
+        self._vignette_rgb_cache = None
+        self._vignette_rgb_intensity = None
 
     def _detect_face(
         self,
@@ -313,12 +416,14 @@ class FaceBeautifier:
                 shared = get_shared_landmarker()
                 if not shared.ready:
                     self._face_mask = None
+                    self._tone_mask = None
                     self._face_bbox = None
                     return
                 landmarks = shared.detect(frame, reuse_frames=2)
 
             if not landmarks:
                 self._face_mask = None
+                self._tone_mask = None
                 self._face_bbox = None
                 return
 
@@ -332,24 +437,86 @@ class FaceBeautifier:
             cv2.fillConvexPoly(mask, pts, 255)
 
             # Feather edges with Gaussian blur for smooth blending
-            self._face_mask = cv2.GaussianBlur(mask, (21, 21), 0)
-
             # Bounding box for ROI optimization
             x, y, w, h = cv2.boundingRect(pts)
             self._face_bbox = (x, y, w, h)
+            mask = cv2.GaussianBlur(mask, (21, 21), 0)
+            mask = self._apply_hairline_taper(mask, y, h)
+            self._face_mask = mask
+            self._tone_mask = self._build_tone_mask(mask, y, h)
 
             # Face center for vignette
+            prev_center = self._face_center
             cx = int(np.mean([landmarks[i].x for i in _FACE_OVAL_INDICES]) * width)
             cy = int(np.mean([landmarks[i].y for i in _FACE_OVAL_INDICES]) * height)
             self._face_center = (cx, cy)
+            if prev_center is None:
+                self._face_motion_px = 0.0
+            else:
+                self._face_motion_px = float(
+                    np.hypot(cx - prev_center[0], cy - prev_center[1])
+                )
 
         except Exception:
             self._face_mask = None
+            self._tone_mask = None
+
+    @staticmethod
+    def _apply_hairline_taper(mask: np.ndarray, top: int, face_height: int) -> np.ndarray:
+        """Fade face effects out near the upper hairline.
+
+        The face oval and blur feathering can leak slightly into the hair above
+        the forehead. Apply a vertical taper so skin-focused effects stay on the
+        face and forehead while backing off before the hairline.
+        """
+        if mask is None or face_height < 8:
+            return mask
+        height = mask.shape[0]
+        start = max(0, top)
+        end = min(height, top + max(6, int(face_height * 0.24)))
+        if end <= start:
+            return mask
+        tapered = mask.astype(np.float32)
+        ramp = np.linspace(0.30, 1.0, end - start, dtype=np.float32)[:, np.newaxis]
+        tapered[start:end, :] *= ramp
+        return np.clip(tapered, 0, 255).astype(np.uint8)
+
+    @staticmethod
+    def _build_tone_mask(mask: np.ndarray, top: int, face_height: int) -> np.ndarray:
+        """Build a tighter mask for tone-changing face effects.
+
+        Brightness/warmth/smoothing should stay lower on the face than the
+        broader detail mask used for sharpening. This pulls those effects away
+        from the upper hairline and top side hair.
+        """
+        if mask is None:
+            return None
+        tone_mask = mask.copy()
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+        tone_mask = cv2.erode(tone_mask, kernel, iterations=1)
+
+        height, width = tone_mask.shape[:2]
+        start = max(0, top)
+        end = min(height, top + max(8, int(face_height * 0.38)))
+        if end > start:
+            tapered = tone_mask.astype(np.float32)
+            ramp = np.linspace(0.0, 1.0, end - start, dtype=np.float32)[:, np.newaxis]
+            tapered[start:end, :] *= ramp
+
+            upper_end = min(height, top + max(6, int(face_height * 0.26)))
+            if upper_end > start:
+                x = np.linspace(-1.0, 1.0, width, dtype=np.float32)
+                side_ramp = 0.70 + 0.30 * (1.0 - np.abs(x))
+                tapered[start:upper_end, :] *= side_ramp[np.newaxis, :]
+            tone_mask = np.clip(tapered, 0, 255).astype(np.uint8)
+
+        tone_mask = cv2.GaussianBlur(tone_mask, (11, 11), 0)
+        return tone_mask
 
     def _apply_skin_smooth(self, frame: np.ndarray) -> np.ndarray:
         """Bilateral filter on face ROI only — fast, preserves edges."""
         intensity = self._skin_smooth
-        mask = self._face_mask
+        mask = self._tone_mask if self._tone_mask is not None else self._face_mask
         bbox = self._face_bbox
         if bbox is None:
             return frame
@@ -364,10 +531,21 @@ class FaceBeautifier:
 
         roi = frame[y1:y2, x1:x2, :3]
         roi_mask = mask[y1:y2, x1:x2]
-
-        # Small kernel (d=5 = 2ms vs d=10 = 20ms)
-        d = 5 if intensity < 0.6 else 7
-        sigma = int(30 + intensity * 40)
+        # When the face is moving quickly, smoothing contributes less visible
+        # value than edge freshness. Back off instead of spending the full
+        # bilateral cost on motion-heavy frames.
+        motion_fast = self._face_motion_px > max(10.0, min(w, h) * 0.12)
+        motion_very_fast = self._face_motion_px > max(18.0, min(w, h) * 0.20)
+        if motion_very_fast and intensity <= 0.45:
+            return frame
+        if motion_fast:
+            intensity *= 0.55
+            d = 3
+            sigma = int(20 + intensity * 20)
+        else:
+            # Small kernel (d=5 = 2ms vs d=10 = 20ms)
+            d = 5 if intensity < 0.6 else 7
+            sigma = int(30 + intensity * 40)
         smoothed = cv2.bilateralFilter(roi, d, sigma, sigma)
 
         # Blend using face mask (ROI only)
@@ -385,7 +563,7 @@ class FaceBeautifier:
         raw_bgr = frame[:, :, :3].copy()
 
         bbox = self._face_bbox
-        mask = self._face_mask
+        mask = self._tone_mask if self._tone_mask is not None else self._face_mask
         if bbox is None or mask is None:
             # Keep raw history current, but do not blur the whole composited frame.
             self._prev_frame = raw_bgr
@@ -404,6 +582,10 @@ class FaceBeautifier:
         roi = raw_bgr[y1:y2, x1:x2]
         roi_mask = mask[y1:y2, x1:x2]
         denoised = roi.copy()
+
+        if self._face_motion_px > max(12.0, min(w, h) * 0.14):
+            self._prev_frame = raw_bgr
+            return frame
 
         if self._prev_frame is not None and self._prev_frame.shape == raw_bgr.shape:
             prev_roi = self._prev_frame[y1:y2, x1:x2]
@@ -435,16 +617,27 @@ class FaceBeautifier:
                            width: int, height: int) -> np.ndarray:
         """Vignette effect — cached gradient, cv2 SIMD multiply."""
         intensity = self._edge_darken
-
-        if (self._vignette_cache is None or
-                self._vignette_size != (width, height) or
-                self._frame_counter % 10 == 0):
+        current_center = self._face_center or (width // 2, height // 2)
+        center_shift = 0
+        if self._vignette_center is not None:
+            center_shift = max(
+                abs(current_center[0] - self._vignette_center[0]),
+                abs(current_center[1] - self._vignette_center[1]),
+            )
+        if (
+            self._vignette_cache is None
+            or self._vignette_size != (width, height)
+            or center_shift > max(8, min(width, height) // 64)
+        ):
             self._build_vignette_cache(width, height)
 
-        vignette = (1.0 - intensity) + intensity * self._vignette_cache
-        v3 = cv2.merge([vignette, vignette, vignette])
+        if self._vignette_rgb_cache is None or self._vignette_rgb_intensity != intensity:
+            vignette = (1.0 - intensity) + intensity * self._vignette_cache
+            self._vignette_rgb_cache = cv2.merge([vignette, vignette, vignette])
+            self._vignette_rgb_intensity = intensity
+
         frame[:, :, :3] = cv2.multiply(
-            frame[:, :, :3], v3, scale=1.0, dtype=cv2.CV_8U
+            frame[:, :, :3], self._vignette_rgb_cache, scale=1.0, dtype=cv2.CV_8U
         )
         return frame
 
@@ -454,7 +647,7 @@ class FaceBeautifier:
         Uses direct BGR math instead of LAB conversion (saves ~12ms).
         """
         intensity = self._enhance
-        mask = self._face_mask
+        mask = self._tone_mask if self._tone_mask is not None else self._face_mask
         bbox = self._face_bbox
         if bbox is None:
             return frame
@@ -502,7 +695,6 @@ class FaceBeautifier:
 
         roi = frame[y1:y2, x1:x2, :3]
         roi_mask = mask[y1:y2, x1:x2]
-
         # Unsharp mask on ROI only
         blurred = cv2.GaussianBlur(roi, (0, 0), 3)
         amount = 0.5 + intensity * 1.5
@@ -520,4 +712,7 @@ class FaceBeautifier:
         """Release resources."""
         self._initialized = False
         self._face_mask = None
+        self._tone_mask = None
         self._prev_frame = None
+        self._vignette_cache = None
+        self._vignette_rgb_cache = None

@@ -44,7 +44,7 @@ class AutoCaptureTuningTests(unittest.TestCase):
         app._relighter = SimpleNamespace(enabled=True)
         app._autoframe = SimpleNamespace(enabled=False)
 
-        self.assertEqual(app._landmark_reuse_frames(), 3)
+        self.assertEqual(app._landmark_reuse_frames(), 4)
 
     def test_light_face_stack_keeps_landmark_reuse_tighter(self):
         app = NVBroadcastApp.__new__(NVBroadcastApp)
@@ -67,6 +67,177 @@ class AutoCaptureTuningTests(unittest.TestCase):
         app._autoframe = SimpleNamespace(enabled=False)
 
         self.assertFalse(app._compute_inline_inference())
+
+    def test_profile_infer_height_uses_process_scale(self):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.video.height = 576
+
+        self.assertEqual(app._profile_infer_height("max_quality"), 576)
+        self.assertEqual(app._profile_infer_height("performance"), 288)
+        self.assertEqual(
+            app._profile_infer_height(
+                "performance",
+                use_tensorrt=False,
+                use_fused_kernel=True,
+            ),
+            360,
+        )
+
+    @mock.patch("nvbroadcast.app.save_config")
+    @mock.patch("nvbroadcast.core.config.apply_performance_profile")
+    def test_set_performance_profile_applies_profile_infer_height(
+        self,
+        apply_performance_profile,
+        _save,
+    ):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.video.height = 576
+        app.config.video.fps = 30
+        app._video_effects = SimpleNamespace(
+            set_compositing=mock.Mock(),
+            set_engine_mode=mock.Mock(),
+            set_profile_infer_height=mock.Mock(),
+            _apply_edge_config=mock.Mock(),
+            _backend=None,
+            _skip_interval=1,
+        )
+        app._beautifier = SimpleNamespace(set_compositing=mock.Mock())
+        app._video_pipeline = None
+        app._window = None
+        app._refresh_inference_policy = mock.Mock()
+        app._use_nvdec = False
+
+        NVBroadcastApp.set_performance_profile(
+            app,
+            "performance",
+            compositing="cupy",
+            use_tensorrt=False,
+            use_fused_kernel=False,
+            use_nvdec=False,
+            mode_key="cuda_perf",
+        )
+
+        apply_performance_profile.assert_called_once_with(app.config, "performance")
+        app._video_effects.set_profile_infer_height.assert_called_once_with(288)
+
+    @mock.patch("nvbroadcast.app.save_config")
+    def test_apply_mode_key_syncs_named_mode_quality_preset(self, _save):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.video.quality_preset = "quality"
+        app._video_effects = SimpleNamespace(quality="quality")
+        app._window = None
+        app.set_performance_profile = mock.Mock()
+
+        changed = NVBroadcastApp.apply_mode_key(app, "killer")
+
+        self.assertTrue(changed)
+        app.set_performance_profile.assert_called_once()
+        self.assertEqual(app._video_effects.quality, "performance")
+        self.assertEqual(app.config.video.quality_preset, "performance")
+
+    @mock.patch("nvbroadcast.app.save_config")
+    def test_cuda_fast_mode_uses_fused_compositor(self, _save):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.video.quality_preset = "quality"
+        app._video_effects = SimpleNamespace(quality="quality")
+        app._window = None
+        app.set_performance_profile = mock.Mock()
+
+        changed = NVBroadcastApp.apply_mode_key(app, "cuda_perf")
+
+        self.assertTrue(changed)
+        _, kwargs = app.set_performance_profile.call_args
+        self.assertEqual(kwargs["mode_key"], "cuda_perf")
+        self.assertEqual(kwargs["profile_name"] if "profile_name" in kwargs else app.set_performance_profile.call_args.args[0], "performance")
+        self.assertTrue(kwargs["use_fused_kernel"])
+        self.assertEqual(app.config.video.quality_preset, "performance")
+
+    @mock.patch("nvbroadcast.app.save_config")
+    def test_restore_settings_normalizes_stale_named_mode_quality(self, save_config):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.mode_key = "killer"
+        app.config.video.quality_preset = "quality"
+        app.config.performance_profile = "performance"
+        app.config.compositing = "cupy"
+
+        app._video_effects = SimpleNamespace(
+            _model_type="rvm",
+            _quality="quality",
+            _gpu_index=0,
+            enabled=False,
+            mode="blur",
+            intensity=0.0,
+            set_compositing=mock.Mock(),
+            set_profile_infer_height=mock.Mock(),
+            set_engine_mode=mock.Mock(),
+            _apply_edge_config=mock.Mock(),
+        )
+        app._beautifier = SimpleNamespace(
+            enabled=False,
+            skin_smooth=0.0,
+            denoise=0.0,
+            enhance=0.0,
+            sharpen=0.0,
+            edge_darken=0.0,
+            set_compositing=mock.Mock(),
+        )
+        app._perf_monitor = SimpleNamespace(set_gpu_index=mock.Mock())
+        app._window = SimpleNamespace(
+            restore_settings=mock.Mock(),
+            set_status=mock.Mock(),
+        )
+        app._eye_contact = SimpleNamespace(enabled=False, intensity=0.0)
+        app._relighter = SimpleNamespace(enabled=False, intensity=0.0)
+        app._autoframe = SimpleNamespace(enabled=False, zoom_level=1.0)
+        app._video_pipeline = None
+        app._vcam_available = False
+        app._refresh_inference_policy = mock.Mock()
+        app._audio_pipeline_should_publish = lambda: False
+
+        NVBroadcastApp._restore_settings(app)
+
+        self.assertEqual(app.config.video.quality_preset, "performance")
+        self.assertEqual(app._video_effects._quality, "performance")
+        save_config.assert_called_once_with(app.config)
+
+    @mock.patch("nvbroadcast.app.save_config")
+    def test_setup_complete_syncs_named_mode_quality_preset(self, save_config):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.auto_start = False
+        app._video_effects = SimpleNamespace(
+            _gpu_index=0,
+            _quality="quality",
+            _skip_interval=1,
+            _apply_edge_config=mock.Mock(),
+            set_compositing=mock.Mock(),
+            set_profile_infer_height=mock.Mock(),
+            set_engine_mode=mock.Mock(),
+        )
+        app._beautifier = SimpleNamespace(set_compositing=mock.Mock())
+        app._window = SimpleNamespace(
+            rebuild_mode_selector=mock.Mock(),
+            _sync_quality_selector=mock.Mock(),
+            _gpu_selector=None,
+            _edge_dilate=SimpleNamespace(_scale=SimpleNamespace(set_value=mock.Mock())),
+            _edge_blur=SimpleNamespace(_scale=SimpleNamespace(set_value=mock.Mock())),
+            _edge_strength=SimpleNamespace(_scale=SimpleNamespace(set_value=mock.Mock())),
+            _edge_midpoint=SimpleNamespace(_scale=SimpleNamespace(set_value=mock.Mock())),
+            set_status=mock.Mock(),
+        )
+
+        NVBroadcastApp._on_setup_complete(app, None, "performance", 0, "cupy")
+
+        self.assertEqual(app.config.mode_key, "cuda_perf")
+        self.assertEqual(app.config.video.quality_preset, "performance")
+        self.assertEqual(app._video_effects._quality, "performance")
+        app._window._sync_quality_selector.assert_called_once_with()
+        save_config.assert_called_once_with(app.config)
 
 
 if __name__ == "__main__":

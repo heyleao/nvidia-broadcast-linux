@@ -36,6 +36,26 @@ class AppAudioPolicyTests(unittest.TestCase):
         fake = self._fake_app(noise_removal=True, voice_fx_enabled=False)
         self.assertTrue(NVBroadcastApp._audio_pipeline_should_run(fake))
 
+    def test_transcriber_preload_waits_while_streaming(self):
+        fake = SimpleNamespace(
+            _meeting_active=False,
+            _meeting_finalizing=False,
+            _streaming=True,
+            _preload_transcriber=mock.Mock(),
+        )
+        self.assertTrue(NVBroadcastApp._preload_transcriber_when_idle(fake))
+        fake._preload_transcriber.assert_not_called()
+
+    def test_transcriber_preload_runs_once_idle(self):
+        fake = SimpleNamespace(
+            _meeting_active=False,
+            _meeting_finalizing=False,
+            _streaming=False,
+            _preload_transcriber=mock.Mock(),
+        )
+        self.assertFalse(NVBroadcastApp._preload_transcriber_when_idle(fake))
+        fake._preload_transcriber.assert_called_once_with()
+
 
 if __name__ == "__main__":
     unittest.main()

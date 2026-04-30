@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.1.6
+Version:        1.1.7
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -143,6 +143,12 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Tue Apr 29 2026 doczeus <harshit@kshoonya.com> - 1.1.7-1
+- Improve live background edges around hair, fingers, and hands near the body
+- Reduce face-effect spill into head hair so hair looks less bright and washed out
+- Keep the exported nvbroadcast microphone live even when voice effects and noise removal are turned off
+- Re-verify audio, video, meeting transcription, summaries, and packaging checks before release
+
 * Tue Apr 29 2026 doczeus <harshit@kshoonya.com> - 1.1.6-1
 - Fix the live background alpha path so one dedicated worker owns CUDA inference instead of hopping across short-lived threads
 - Stop repeated invalid-resource-handle failures and RVM reset loops that could make replace mode extremely laggy

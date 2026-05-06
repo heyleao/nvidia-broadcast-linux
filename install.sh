@@ -5,7 +5,7 @@
 # Supports: Ubuntu, Debian, Pop!_OS, Linux Mint, Fedora, RHEL, CentOS,
 #           Arch, Manjaro, EndeavourOS, openSUSE, Gentoo, Void, NixOS
 set -eE
-trap 'echo ""; echo "ERROR: Installation failed at line $LINENO (exit code $?)"; echo "Please report this issue with the output above."; exit 1' ERR
+trap 'rc=$?; echo ""; echo "ERROR: Installation failed at line $LINENO (exit code $rc)"; echo "Please report this issue with the output above."; exit $rc' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INSTALL_PREFIX="${HOME}/.local"
@@ -495,12 +495,20 @@ else
         if [[ "$install_cupy" =~ ^[Yy]$ ]]; then
             echo "  Installing CuPy (this may take a few minutes)..."
             if "$VENV_DIR/bin/pip" install cupy-cuda12x nvidia-cuda-nvrtc-cu12 -q 2>&1; then
-                CUPY_TEST=$("$VENV_DIR/bin/python" -c "import cupy; a=cupy.ones(10); print('OK')" 2>&1)
-                if [ "$CUPY_TEST" = "OK" ]; then
-                    echo "  CuPy installed and verified!"
-                    CUPY_INSTALLED=true
+                if CUPY_TEST=$("$VENV_DIR/bin/python" -c "import cupy; a=cupy.ones(10); print('OK')" 2>&1); then
+                    if [ "$CUPY_TEST" = "OK" ]; then
+                        echo "  CuPy installed and verified!"
+                        CUPY_INSTALLED=true
+                    else
+                        echo "  WARNING: CuPy installed but verification returned unexpected output."
+                        echo "  Output: $CUPY_TEST"
+                        echo "  You can retry later: $VENV_DIR/bin/pip install cupy-cuda12x"
+                    fi
                 else
                     echo "  WARNING: CuPy installed but verification failed."
+                    if [ -n "${CUPY_TEST:-}" ]; then
+                        echo "  Output: $CUPY_TEST"
+                    fi
                     echo "  You can retry later: $VENV_DIR/bin/pip install cupy-cuda12x"
                 fi
             else

@@ -14,6 +14,9 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("requires Python 3.8-3.13", install_script)
         self.assertIn("Python runtime notice", install_script)
         self.assertIn("some premium paths use safer defaults", install_script)
+        self.assertIn('rc=$?; echo ""; echo "ERROR: Installation failed at line $LINENO (exit code $rc)"', install_script)
+        self.assertIn('if CUPY_TEST=$("$VENV_DIR/bin/python" -c "import cupy; a=cupy.ones(10); print(\'OK\')" 2>&1); then', install_script)
+        self.assertIn("CuPy installed but verification failed.", install_script)
 
     def test_debian_postinst_installs_meeting_runtime(self):
         postinst = (REPO_ROOT / "packaging" / "debian" / "postinst").read_text()

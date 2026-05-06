@@ -9,6 +9,7 @@ import base64
 import json
 import os
 import queue
+import signal
 import subprocess
 import sys
 import threading
@@ -455,6 +456,73 @@ class AudioPipeline:
             return False
         return True
 
+    def _iter_helper_pids(self) -> list[int]:
+        try:
+            result = subprocess.run(
+                ["pgrep", "-f", "nvbroadcast.audio.service"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except Exception:
+            return []
+
+        pids: list[int] = []
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                pids.append(int(line))
+            except ValueError:
+                continue
+        return pids
+
+    def _read_process_cmdline(self, pid: int) -> str:
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                return fh.read().replace(b"\0", b" ").decode("utf-8", errors="ignore").strip()
+        except Exception:
+            return ""
+
+    def _read_process_ppid(self, pid: int) -> int:
+        try:
+            with open(f"/proc/{pid}/status", "r", encoding="utf-8", errors="ignore") as fh:
+                for line in fh:
+                    if line.startswith("PPid:"):
+                        return int(line.split(":", 1)[1].strip())
+        except Exception:
+            return 0
+        return 0
+
+    def _terminate_process(self, pid: int) -> None:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        except Exception:
+            return
+
+    def _stop_stale_helper_processes(self) -> None:
+        if not IS_LINUX:
+            return
+
+        current_pid = os.getpid()
+        for pid in self._iter_helper_pids():
+            if pid <= 0:
+                continue
+            ppid = self._read_process_ppid(pid)
+            if ppid == current_pid:
+                continue
+
+            helper_cmd = self._read_process_cmdline(pid)
+            parent_cmd = self._read_process_cmdline(ppid)
+
+            # Older helper builds had no parent tracking at all. Also clean up
+            # helpers that are no longer parented by a real NV Broadcast app.
+            if "--parent-pid" not in helper_cmd or "nvbroadcast" not in parent_cmd:
+                self._terminate_process(pid)
+
     def _helper_state(self) -> dict:
         settings = self.voice_fx.settings
         return {
@@ -479,6 +547,7 @@ class AudioPipeline:
             return True
 
         self._stop_helper_process()
+        self._stop_stale_helper_processes()
         state_json = json.dumps(self._helper_state(), separators=(",", ":")).encode("utf-8")
         state_b64 = base64.urlsafe_b64encode(state_json).decode("ascii")
         stdio = None if self._debug_audio else subprocess.DEVNULL
@@ -488,6 +557,8 @@ class AudioPipeline:
             "nvbroadcast.audio.service",
             "--state-b64",
             state_b64,
+            "--parent-pid",
+            str(os.getpid()),
         ]
 
         try:

@@ -1,4 +1,5 @@
 import unittest
+import os
 from unittest import mock
 
 import gi
@@ -146,6 +147,56 @@ class AudioPipelineLifecycleTests(unittest.TestCase):
         self.assertFalse(state["voice_fx_use_gpu"])
         self.assertAlmostEqual(state["voice_fx_settings"]["compression"], 0.5)
         self.assertAlmostEqual(state["voice_fx_settings"]["gain"], 0.15)
+
+    def test_start_helper_process_passes_parent_pid(self):
+        pipeline = AudioPipeline(use_helper_process=False)
+        fake_proc = mock.Mock()
+        fake_proc.poll.return_value = None
+
+        with mock.patch.object(pipeline, "_stop_helper_process"), \
+             mock.patch.object(pipeline, "_stop_stale_helper_processes"), \
+             mock.patch("nvbroadcast.audio.pipeline.subprocess.Popen", return_value=fake_proc) as popen, \
+             mock.patch("nvbroadcast.audio.pipeline.time.sleep"):
+            started = pipeline._start_helper_process()
+
+        self.assertTrue(started)
+        cmd = popen.call_args.args[0]
+        self.assertIn("--parent-pid", cmd)
+        self.assertIn(str(os.getpid()), cmd)
+
+    def test_stop_stale_helper_processes_terminates_orphaned_helpers(self):
+        pipeline = AudioPipeline(use_helper_process=False)
+        current_pid = os.getpid()
+        helper_pid = 50001
+        stale_pid = 50002
+        healthy_other_pid = 50003
+
+        with mock.patch.object(
+            pipeline,
+            "_iter_helper_pids",
+            return_value=[helper_pid, stale_pid, healthy_other_pid],
+        ), mock.patch.object(
+            pipeline,
+            "_read_process_ppid",
+            side_effect=lambda pid: {
+                helper_pid: current_pid,
+                stale_pid: 90001,
+                healthy_other_pid: 90002,
+            }[pid],
+        ), mock.patch.object(
+            pipeline,
+            "_read_process_cmdline",
+            side_effect=lambda pid: {
+                helper_pid: "python -m nvbroadcast.audio.service --parent-pid 123",
+                stale_pid: "python -m nvbroadcast.audio.service --state-b64 abc",
+                healthy_other_pid: "python -m nvbroadcast.audio.service --parent-pid 456",
+                90001: "/usr/lib/systemd/systemd --user",
+                90002: "/home/doczeus/Projects/Nvidia Wrappers/Broadcast/.venv/bin/python -m nvbroadcast",
+            }.get(pid, ""),
+        ), mock.patch.object(pipeline, "_terminate_process") as terminate:
+            pipeline._stop_stale_helper_processes()
+
+        terminate.assert_called_once_with(stale_pid)
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@
 import argparse
 import base64
 import json
+import os
 import signal
 import threading
 import time
@@ -48,6 +49,12 @@ def _build_pipeline(state: dict) -> AudioPipeline:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Run the isolated nvbroadcast audio worker")
     parser.add_argument("--state-b64", required=True, help="Base64-encoded JSON pipeline state")
+    parser.add_argument(
+        "--parent-pid",
+        type=int,
+        default=0,
+        help="PID of the parent NV Broadcast app process",
+    )
     args = parser.parse_args(argv)
 
     stop_event = threading.Event()
@@ -65,6 +72,8 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         while not stop_event.wait(0.2):
+            if args.parent_pid and os.getppid() != args.parent_pid:
+                break
             pass
     finally:
         pipeline.stop()

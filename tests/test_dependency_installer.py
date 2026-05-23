@@ -102,7 +102,7 @@ class DependencyInstallerTests(unittest.TestCase):
         with mock.patch.object(installer, "is_available", return_value=False), \
              mock.patch.object(installer, "is_supported", return_value=True), \
              mock.patch.object(installer, "_emit_progress", return_value=False), \
-             mock.patch.object(dependency_installer, "_has_whisper", return_value=True), \
+             mock.patch.dict(dependency_installer.PACKAGE_SPECS["whisper"], {"verify": lambda: True}), \
              mock.patch.object(dependency_installer.subprocess, "Popen", side_effect=procs) as popen:
             success, _message = installer._install_single("whisper", "whisper")
 

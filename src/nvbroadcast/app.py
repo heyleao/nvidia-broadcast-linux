@@ -954,14 +954,29 @@ class NVBroadcastApp(Adw.Application):
         return 2
 
     def _compute_inline_inference(self) -> bool:
-        """Keep quality profiles fully inline for the freshest live matte.
+        """Choose whether alpha inference should run inline on the live frame.
 
         Async alpha helped throughput on some heavy stacks, but it also makes
         replaced-background edges visibly trail motion because the current frame
         is composited against an older alpha. For `max_quality` and `balanced`,
         prioritize edge freshness and match the pre-1.1.6 live behavior.
+
+        CUDA Fast keeps the lightweight async path for blur/remove, but replace
+        mode is visually unforgiving around hair, glasses, hands, and fingers.
+        On the fused CuPy path, inline replace inference is the better default:
+        it spends GPU time where available instead of letting CPU-side stale
+        mattes create a delayed edge.
         """
-        return self.config.performance_profile in ("max_quality", "balanced")
+        if self.config.performance_profile in ("max_quality", "balanced"):
+            return True
+        return (
+            self.config.performance_profile == "performance"
+            and self.config.compositing == "cupy"
+            and bool(self.config.use_fused_kernel)
+            and not bool(self.config.use_tensorrt)
+            and bool(getattr(self._video_effects, "enabled", False))
+            and getattr(self._video_effects, "mode", "") == "replace"
+        )
 
     def _refresh_inference_policy(self) -> None:
         inline = self._compute_inline_inference()
@@ -1194,10 +1209,10 @@ class NVBroadcastApp(Adw.Application):
             use_fused_kernel = self.config.use_fused_kernel
 
         # Fused non-TRT fast mode stays quality-sensitive around hair and hand
-        # gaps. A 360p floor is a better live tradeoff than dropping all the
-        # way to the raw 0.5 scale on 480p/576p inputs.
+        # gaps. Keep a source-capped 480p floor so CUDA Fast still has enough
+        # matte detail to avoid jagged hair/finger edges without forcing 720p.
         if profile_name == "performance" and use_fused_kernel and not use_tensorrt:
-            infer_h = max(360, infer_h)
+            infer_h = min(source_h, max(480, infer_h))
         return infer_h
 
     @staticmethod

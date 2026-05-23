@@ -59,12 +59,36 @@ class AutoCaptureTuningTests(unittest.TestCase):
         app = NVBroadcastApp.__new__(NVBroadcastApp)
         app.config = AppConfig()
         app.config.performance_profile = "performance"
+        app.config.compositing = "cpu"
         app.config.use_tensorrt = False
+        app.config.use_fused_kernel = False
         app._video_effects = SimpleNamespace(enabled=True, mode="replace")
         app._beautifier = SimpleNamespace(enabled=True)
         app._eye_contact = SimpleNamespace(enabled=True)
         app._relighter = SimpleNamespace(enabled=True)
         app._autoframe = SimpleNamespace(enabled=False)
+
+        self.assertFalse(app._compute_inline_inference())
+
+    def test_cuda_fast_replace_uses_inline_alpha_for_fresh_edges(self):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.performance_profile = "performance"
+        app.config.compositing = "cupy"
+        app.config.use_tensorrt = False
+        app.config.use_fused_kernel = True
+        app._video_effects = SimpleNamespace(enabled=True, mode="replace")
+
+        self.assertTrue(app._compute_inline_inference())
+
+    def test_cuda_fast_blur_keeps_async_alpha_for_throughput(self):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.performance_profile = "performance"
+        app.config.compositing = "cupy"
+        app.config.use_tensorrt = False
+        app.config.use_fused_kernel = True
+        app._video_effects = SimpleNamespace(enabled=True, mode="blur")
 
         self.assertFalse(app._compute_inline_inference())
 
@@ -75,6 +99,15 @@ class AutoCaptureTuningTests(unittest.TestCase):
 
         self.assertEqual(app._profile_infer_height("max_quality"), 576)
         self.assertEqual(app._profile_infer_height("performance"), 288)
+        self.assertEqual(
+            app._profile_infer_height(
+                "performance",
+                use_tensorrt=False,
+                use_fused_kernel=True,
+            ),
+            480,
+        )
+        app.config.video.height = 360
         self.assertEqual(
             app._profile_infer_height(
                 "performance",

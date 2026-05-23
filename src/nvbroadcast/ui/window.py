@@ -1006,7 +1006,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             "cuda_balanced": "CUDA Balanced: good quality with lighter GPU load",
             "zeus": "Zeus: fast GPU mode with TensorRT and edge refine",
             "killer": "Killer: fastest GPU mode, softer edges under motion",
-            "cuda_perf": "CUDA Fast: fused compositor with lighter matting for higher live FPS",
+            "cuda_perf": "CUDA Fast: fused compositor with fresher 480p replace matting",
             "cpu_quality": "CPU High Quality: most compatible, highest CPU cost",
             "cpu_light": "CPU Fast: reduced CPU cost with lower quality",
             "cpu_low": "CPU Low End: fallback mode for weaker systems",

@@ -75,6 +75,11 @@ class MeetingTranscriberTests(unittest.TestCase):
     def test_missing_backend_help_mentions_optional_whisper(self):
         self.assertIn("openai-whisper", _missing_backend_help("whisper"))
 
+    def test_auto_missing_backend_help_uses_complete_faster_whisper_recipe(self):
+        help_text = _missing_backend_help("auto")
+        self.assertIn("pip install --no-deps faster-whisper", help_text)
+        self.assertIn("pip install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm", help_text)
+
     def test_start_returns_false_when_initialize_fails(self):
         transcriber = MeetingTranscriber("base")
         with mock.patch.object(transcriber, "initialize", return_value=False):

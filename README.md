@@ -42,6 +42,15 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
+### v1.1.9 — Meeting Runtime Dependency Hotfix
+
+- **Meeting Transcription Install Fixed** — The app now installs `faster-whisper` safely without skipping the support packages required for local transcription
+- **Package Installers Fixed Too** — Debian, RPM, and macOS package install paths now use the same corrected meeting runtime recipe as the in-app installer
+- **Clearer Recovery Steps** — Missing-transcription messages now show the complete command instead of only `pip install faster-whisper`
+- **No OpenAI Whisper Regression** — `openai-whisper` remains optional and guarded on newer Python versions; the default packaged path stays on the lighter `faster-whisper` runtime
+
+> If you are still on `v1.1.8` or older, update to `v1.1.9`. This is the recommended hotfix for meeting transcription dependency reliability.
+
 ### v1.1.8 — Audio Helper and Installer Reliability Patch
 
 - **Fixed Echo-Like Mic Doubling** — Old background audio helpers now exit with the app and are cleaned up before a new helper starts, preventing stale helpers from feeding duplicate `nvbroadcast` mic audio into calls
@@ -605,7 +614,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.1.8)
+│   ├── __init__.py              # Package version (1.1.9)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -638,7 +647,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v1.1.8)
+├── pyproject.toml               # Package config (v1.1.9)
 └── README.md
 ```
 

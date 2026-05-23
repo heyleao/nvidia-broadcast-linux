@@ -15,7 +15,8 @@ fi
 # Install Python dependencies
 "$VENV_DIR/bin/pip" install --upgrade pip -q
 "$VENV_DIR/bin/pip" install "$INSTALL_DIR" -q
-"$VENV_DIR/bin/pip" install --no-deps faster-whisper ctranslate2 huggingface-hub httpx tokenizers soundfile -q 2>/dev/null || \
+"$VENV_DIR/bin/pip" install --no-deps faster-whisper -q 2>/dev/null && \
+    "$VENV_DIR/bin/pip" install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm -q 2>/dev/null || \
     echo "NV Broadcast: faster-whisper install failed (meeting transcription may require in-app runtime install)"
 
 # Install CuPy if NVIDIA GPU detected

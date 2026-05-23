@@ -67,8 +67,14 @@ def _missing_backend_help(preference: str = "auto") -> str:
             "(advanced optional backend; startup keeps it isolated from the GUI process)"
         )
     if preference == "faster-whisper":
-        return "Run: pip install faster-whisper ctranslate2 huggingface-hub httpx tokenizers soundfile"
-    return "Run: pip install faster-whisper"
+        return (
+            "Run: pip install --no-deps faster-whisper && "
+            "pip install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm"
+        )
+    return (
+        "Run: pip install --no-deps faster-whisper && "
+        "pip install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm"
+    )
 
 
 def _coerce_language(value: str | None) -> str | None:

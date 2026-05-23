@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nvbroadcast"
-version = "1.1.8"
+version = "1.1.9"
 description = "NV Broadcast - Unofficial NVIDIA Broadcast for Linux and other OS by doczeus - AI-powered virtual camera, background removal, and noise cancellation"
 license = {text = "GPL-3.0-or-later"}
 requires-python = ">=3.11"
@@ -91,3 +91,7 @@ where = ["src"]
     "data/backgrounds/studio_bg.png",
     "data/backgrounds/test_bg.png",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = [".git", ".venv", "build", "dist"]

@@ -128,22 +128,27 @@ PACKAGE_SPECS = {
         ),
         # Install faster-whisper without its CPU onnxruntime dependency so the
         # main app can keep the GPU ONNX Runtime package for video inference.
-        "install_args": [
-            "install",
-            "--no-deps",
-            "faster-whisper",
-            "ctranslate2",
-            "huggingface-hub",
-            "httpx",
-            "tokenizers",
-            "soundfile",
+        # Install the rest normally so dependencies like av/httpcore/anyio are
+        # resolved instead of being skipped by a broad --no-deps install.
+        "install_steps": [
+            ["install", "--no-deps", "faster-whisper"],
+            [
+                "install",
+                "ctranslate2",
+                "huggingface-hub",
+                "httpx",
+                "tokenizers",
+                "soundfile",
+                "av",
+                "tqdm",
+            ],
         ],
         "supported": lambda: True,
         "check": _has_whisper,
         "verify": _has_whisper,
         "help": (
-            "Retry later with: .venv/bin/pip install --no-deps "
-            "faster-whisper ctranslate2 huggingface-hub httpx tokenizers soundfile"
+            "Retry later with: .venv/bin/pip install --no-deps faster-whisper && "
+            ".venv/bin/pip install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm"
         ),
     },
 }
@@ -326,45 +331,51 @@ class DependencyInstaller(GObject.Object):
 
         label_prefix = f"{prefix}: " if prefix else ""
         venv_pip = Path(sys.executable).parent / "pip"
-        cmd = [str(venv_pip), *spec["install_args"], "--progress-bar", "off"]
+        install_steps = spec.get("install_steps") or [spec["install_args"]]
         GLib.idle_add(
             self._emit_progress,
             job_key,
             f"{label_prefix}Installing {spec['title']} ({spec['size']})...",
             0.0,
         )
-        try:
-            proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-            )
-        except Exception as exc:
-            return False, f"{spec['title']} could not start: {exc}"
 
         last_line = ""
-        if proc.stdout is not None:
-            for raw in proc.stdout:
-                line = raw.strip()
-                if not line:
-                    continue
-                last_line = line
-                fraction = self._parse_progress_fraction(line)
-                GLib.idle_add(
-                    self._emit_progress,
-                    job_key,
-                    f"{label_prefix}{self._humanize_pip_line(line)}",
-                    fraction,
+        for step_index, install_args in enumerate(install_steps, start=1):
+            step_prefix = ""
+            if len(install_steps) > 1:
+                step_prefix = f"Step {step_index}/{len(install_steps)}: "
+            cmd = [str(venv_pip), *install_args, "--progress-bar", "off"]
+            try:
+                proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    text=True,
+                    bufsize=1,
                 )
+            except Exception as exc:
+                return False, f"{spec['title']} could not start: {exc}"
 
-        return_code = proc.wait()
-        if return_code != 0:
-            msg = f"{spec['title']} install failed. {spec['help']}"
-            if last_line:
-                msg += f" Last output: {last_line[:160]}"
-            return False, msg
+            if proc.stdout is not None:
+                for raw in proc.stdout:
+                    line = raw.strip()
+                    if not line:
+                        continue
+                    last_line = line
+                    fraction = self._parse_progress_fraction(line)
+                    GLib.idle_add(
+                        self._emit_progress,
+                        job_key,
+                        f"{label_prefix}{step_prefix}{self._humanize_pip_line(line)}",
+                        fraction,
+                    )
+
+            return_code = proc.wait()
+            if return_code != 0:
+                msg = f"{spec['title']} install failed. {spec['help']}"
+                if last_line:
+                    msg += f" Last output: {last_line[:160]}"
+                return False, msg
 
         try:
             verified = bool(spec["verify"]())

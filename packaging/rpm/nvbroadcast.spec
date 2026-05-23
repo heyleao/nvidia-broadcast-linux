@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.1.8
+Version:        1.1.9
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -116,7 +116,8 @@ if [ ! -d /opt/nvbroadcast/.venv ]; then
 fi
 /opt/nvbroadcast/.venv/bin/pip install --upgrade pip -q
 /opt/nvbroadcast/.venv/bin/pip install /opt/nvbroadcast -q
-/opt/nvbroadcast/.venv/bin/pip install --no-deps faster-whisper ctranslate2 huggingface-hub httpx tokenizers soundfile -q 2>/dev/null || true
+/opt/nvbroadcast/.venv/bin/pip install --no-deps faster-whisper -q 2>/dev/null && \
+    /opt/nvbroadcast/.venv/bin/pip install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm -q 2>/dev/null || true
 
 # Install CuPy if NVIDIA GPU present
 if command -v nvidia-smi &>/dev/null; then
@@ -143,6 +144,11 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Sat May 23 2026 doczeus <harshit@kshoonya.com> - 1.1.9-1
+- Fix meeting transcription runtime installation across app, Debian/RPM, and macOS package paths
+- Split faster-whisper installation so its support packages keep their required dependencies
+- Update missing-backend help text with the complete faster-whisper install command
+
 * Sat May 23 2026 doczeus <harshit@kshoonya.com> - 1.1.8-1
 - Stop stale orphaned audio helpers from feeding duplicate nvbroadcast mic audio after app exits
 - Fix the source installer CuPy verification flow so optional GPU install checks do not abort incorrectly

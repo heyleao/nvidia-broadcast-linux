@@ -4,7 +4,9 @@ import types
 from unittest import mock
 
 
-if "gi" not in sys.modules:
+try:
+    import gi  # noqa: F401
+except Exception:
     gi = types.ModuleType("gi")
     repository = types.ModuleType("gi.repository")
 
@@ -84,8 +86,36 @@ class DependencyInstallerTests(unittest.TestCase):
             )
 
     def test_whisper_package_spec_installs_httpx(self):
-        install_args = dependency_installer.PACKAGE_SPECS["whisper"]["install_args"]
-        self.assertIn("httpx", install_args)
+        install_steps = dependency_installer.PACKAGE_SPECS["whisper"]["install_steps"]
+        self.assertEqual(install_steps[0], ["install", "--no-deps", "faster-whisper"])
+        self.assertIn("httpx", install_steps[1])
+        self.assertIn("av", install_steps[1])
+        self.assertIn("tqdm", install_steps[1])
+
+    def test_whisper_install_runs_two_pip_steps(self):
+        installer = dependency_installer.DependencyInstaller()
+        procs = [
+            mock.Mock(stdout=[], wait=mock.Mock(return_value=0)),
+            mock.Mock(stdout=[], wait=mock.Mock(return_value=0)),
+        ]
+
+        with mock.patch.object(installer, "is_available", return_value=False), \
+             mock.patch.object(installer, "is_supported", return_value=True), \
+             mock.patch.object(installer, "_emit_progress", return_value=False), \
+             mock.patch.object(dependency_installer, "_has_whisper", return_value=True), \
+             mock.patch.object(dependency_installer.subprocess, "Popen", side_effect=procs) as popen:
+            success, _message = installer._install_single("whisper", "whisper")
+
+        self.assertTrue(success)
+        first_cmd = popen.call_args_list[0].args[0]
+        second_cmd = popen.call_args_list[1].args[0]
+        self.assertIn("--no-deps", first_cmd)
+        self.assertIn("faster-whisper", first_cmd)
+        self.assertNotIn("ctranslate2", first_cmd)
+        self.assertNotIn("--no-deps", second_cmd)
+        self.assertIn("ctranslate2", second_cmd)
+        self.assertIn("httpx", second_cmd)
+        self.assertIn("av", second_cmd)
 
 
 if __name__ == "__main__":

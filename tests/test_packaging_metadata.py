@@ -20,14 +20,23 @@ class PackagingMetadataTests(unittest.TestCase):
 
     def test_debian_postinst_installs_meeting_runtime(self):
         postinst = (REPO_ROOT / "packaging" / "debian" / "postinst").read_text()
-        self.assertIn("faster-whisper", postinst)
-        self.assertIn("httpx", postinst)
+        self.assertIn("pip\" install --no-deps faster-whisper", postinst)
+        self.assertIn("pip\" install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm", postinst)
         self.assertNotIn("openai-whisper", postinst)
+        self.assertNotIn("install --no-deps faster-whisper ctranslate2", postinst)
 
     def test_rpm_postinst_installs_meeting_runtime(self):
         spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
         self.assertIn("pip install --no-deps faster-whisper", spec)
+        self.assertIn("pip install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm", spec)
         self.assertNotIn("openai-whisper", spec)
+        self.assertNotIn("install --no-deps faster-whisper ctranslate2", spec)
+
+    def test_macos_postinstall_installs_meeting_runtime_in_two_steps(self):
+        script = (REPO_ROOT / "build-packages.sh").read_text()
+        self.assertIn("pip install -q --no-deps faster-whisper", script)
+        self.assertIn("pip install -q ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm", script)
+        self.assertNotIn("install -q --no-deps faster-whisper ctranslate2", script)
 
     def test_snap_package_bundles_lighter_meeting_runtime(self):
         snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()

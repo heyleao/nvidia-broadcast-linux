@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.1.7
+Version:        1.1.8
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -143,6 +143,12 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Sat May 23 2026 doczeus <harshit@kshoonya.com> - 1.1.8-1
+- Stop stale orphaned audio helpers from feeding duplicate nvbroadcast mic audio after app exits
+- Fix the source installer CuPy verification flow so optional GPU install checks do not abort incorrectly
+- Report real installer exit codes and clearer optional GPU verification output
+- Add clearer project sponsorship links in the app and README
+
 * Tue Apr 29 2026 doczeus <harshit@kshoonya.com> - 1.1.7-1
 - Improve live background edges around hair, fingers, and hands near the body
 - Reduce face-effect spill into head hair so hair looks less bright and washed out

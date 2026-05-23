@@ -42,6 +42,15 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
+### v1.1.8 — Audio Helper and Installer Reliability Patch
+
+- **Fixed Echo-Like Mic Doubling** — Old background audio helpers now exit with the app and are cleaned up before a new helper starts, preventing stale helpers from feeding duplicate `nvbroadcast` mic audio into calls
+- **CuPy Installer Flow Fixed** — The source installer no longer aborts the whole install when the optional CuPy verification step fails after package installation
+- **Clearer Installer Errors** — Install failures now report the real exit code and show useful CuPy verification output for future troubleshooting
+- **Sponsor Links Easier to Find** — The About window and README now point users to GitHub Sponsors more clearly
+
+> If you are still on `v1.1.7` or older, update to `v1.1.8`. This is the recommended stable patch for microphone reliability and source-install GPU setup.
+
 ### v1.1.7 — Live Edge and Mic Reliability Patch
 
 - **Cleaner Hair and Hand Edges** — Background replace now holds hair edges, finger gaps, and hands near the body more cleanly during motion
@@ -596,7 +605,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.1.7)
+│   ├── __init__.py              # Package version (1.1.8)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -629,7 +638,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v1.1.7)
+├── pyproject.toml               # Package config (v1.1.8)
 └── README.md
 ```
 

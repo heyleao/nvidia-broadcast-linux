@@ -62,6 +62,18 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.1.8" date="2026-05-23">
+      <description>
+        <p>Audio helper and installer reliability patch</p>
+        <ul>
+          <li>Stopped stale orphaned audio helpers from feeding duplicate nvbroadcast mic audio after the app exits</li>
+          <li>Cleaned old audio helpers before starting a new one, reducing echo-like doubled microphone audio in calls</li>
+          <li>Fixed the source installer CuPy verification flow so optional GPU package checks do not abort the whole install incorrectly</li>
+          <li>Improved installer error reporting so failed optional GPU checks show the real exit code and useful output</li>
+          <li>Made project sponsorship links easier to find from the app and README</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.7" date="2026-04-29">
       <description>
         <p>Live edge quality and microphone reliability patch</p>

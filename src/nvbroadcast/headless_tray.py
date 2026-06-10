@@ -26,7 +26,7 @@ gi.require_version("AyatanaAppIndicator3", "0.1")
 from gi.repository import AyatanaAppIndicator3 as AppIndicator
 from gi.repository import GLib, Gtk
 
-from nvbroadcast.core.resources import find_app_icon
+from nvbroadcast.core.resources import find_headless_app_icon
 
 
 VCAM_SERVICE = "nvbroadcast-vcam.service"
@@ -73,7 +73,7 @@ def _lock() -> object | None:
 
 class HeadlessTray:
     def __init__(self):
-        icon = find_app_icon()
+        icon = find_headless_app_icon()
         if icon is None:
             raise RuntimeError("NV Broadcast icon not found")
 

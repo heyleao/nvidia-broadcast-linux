@@ -88,7 +88,10 @@ where = ["src"]
 [tool.setuptools.data-files]
 "share/applications" = ["data/com.doczeus.NVBroadcast.desktop"]
 "share/metainfo" = ["data/com.doczeus.NVBroadcast.metainfo.xml"]
-"share/icons/hicolor/scalable/apps" = ["data/icons/com.doczeus.NVBroadcast.svg"]
+"share/icons/hicolor/scalable/apps" = [
+    "data/icons/com.doczeus.NVBroadcast.svg",
+    "data/icons/com.doczeus.NVBroadcast.Headless.svg",
+]
 "share/nvbroadcast/backgrounds" = [
     "data/backgrounds/gradient_bg.png",
     "data/backgrounds/studio_bg.png",

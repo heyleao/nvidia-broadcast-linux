@@ -23,6 +23,7 @@ from nvbroadcast.core.config import (
     save_config,
 )
 from nvbroadcast.core.constants import CONFIG_FILE, DEFAULT_FPS, DEFAULT_HEIGHT, DEFAULT_WIDTH
+from nvbroadcast.core.resources import HEADLESS_APP_ICON, find_headless_app_icon
 from nvbroadcast.vcam_service import MODE_MAP
 
 
@@ -37,6 +38,8 @@ CONTROL_BIN = BIN_DIR / "nvbroadcast-headless-control"
 TRAY_BIN = BIN_DIR / "nvbroadcast-headless-tray"
 APPLICATIONS_DIR = Path.home() / ".local" / "share" / "applications"
 CONTROL_DESKTOP = APPLICATIONS_DIR / "nvbroadcast-headless-control.desktop"
+ICON_DIR = Path.home() / ".local" / "share" / "icons" / "hicolor" / "scalable" / "apps"
+HEADLESS_ICON = ICON_DIR / HEADLESS_APP_ICON
 
 SERVICE_ENVIRONMENT = "Environment=GST_PLUGIN_PATH=/usr/lib64/gstreamer-1.0"
 
@@ -235,6 +238,7 @@ def phase3_install(args: argparse.Namespace) -> int:
             CONTROL_BIN,
             TRAY_BIN,
             CONTROL_DESKTOP,
+            HEADLESS_ICON,
         ):
             if path.exists():
                 path.unlink()
@@ -247,6 +251,10 @@ def phase3_install(args: argparse.Namespace) -> int:
     _write_executable(CLI_BIN, _module_wrapper("nvbroadcast.headless_cli"))
     _write_executable(CONTROL_BIN, _module_wrapper("nvbroadcast.headless_control"))
     _write_executable(TRAY_BIN, _module_wrapper("nvbroadcast.headless_tray"))
+    icon = find_headless_app_icon()
+    if icon is not None:
+        ICON_DIR.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(icon, HEADLESS_ICON)
     APPLICATIONS_DIR.mkdir(parents=True, exist_ok=True)
     CONTROL_DESKTOP.write_text(
         "\n".join(
@@ -256,6 +264,7 @@ def phase3_install(args: argparse.Namespace) -> int:
                 "Name=NV Broadcast Headless Control",
                 "Comment=Control NVIDIA Broadcast headless camera and microphone services",
                 f"Exec={CONTROL_BIN}",
+                "Icon=com.doczeus.NVBroadcast.Headless",
                 "Terminal=false",
                 "Categories=AudioVideo;",
                 "StartupNotify=true",

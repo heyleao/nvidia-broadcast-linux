@@ -4,6 +4,31 @@ This mode runs NVIDIA Broadcast processing without opening the full GTK UI.
 It is useful for OBS, COSMIC/Wayland sessions, stream setups, and systems where
 the graphical preview is less stable than the camera and microphone pipelines.
 
+## Quick Install
+
+From a source checkout:
+
+```bash
+./install-headless.sh
+```
+
+The installer supports `apt`, `dnf`, `pacman`, and `zypper` based systems. It
+installs common runtime packages, creates a local virtualenv, installs this
+project in editable mode, registers the headless wrappers/services, and enables
+the user services by default.
+
+Skip distro package installation if dependencies are already installed:
+
+```bash
+./install-headless.sh --no-system-deps
+```
+
+Install wrappers without enabling services:
+
+```bash
+./install-headless.sh --no-enable
+```
+
 ## Commands
 
 The CLI is split into phases so users can repeat only the step they need.

@@ -75,6 +75,9 @@ tensorrt = ["tensorrt", "tensorrt-cu12", "onnx"]
 [project.scripts]
 nvbroadcast = "nvbroadcast.__main__:main"
 nvbroadcast-vcam = "nvbroadcast.vcam_service:main"
+nvbroadcast-audio-headless = "nvbroadcast.audio_service:main"
+nvbroadcast-headless = "nvbroadcast.headless_cli:main"
+nvbroadcast-headless-control = "nvbroadcast.headless_control:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

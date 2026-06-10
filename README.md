@@ -42,6 +42,14 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
+### Headless Services for OBS and Wayland
+
+NV Broadcast can also run as user services without opening the full graphical
+preview. This is useful for OBS, COSMIC/Wayland, and streaming setups where the
+camera and microphone pipelines should stay alive in the background.
+
+See [Headless Camera and Microphone Services](docs/HEADLESS_SERVICES.md).
+
 ### v1.1.9 — Meeting Runtime Dependency Hotfix
 
 - **Meeting Transcription Install Fixed** — The app now installs `faster-whisper` safely without skipping the support packages required for local transcription

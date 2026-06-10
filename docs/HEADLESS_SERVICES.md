@@ -106,6 +106,23 @@ The control app does not run the heavy preview UI. It only controls the
 background services. The virtual microphone device is kept stable when the
 audio service is stopped so apps such as OBS do not lose their selected input.
 
+## On-Demand Camera
+
+The headless camera service installed by `phase3` runs in on-demand mode. It
+keeps a lightweight black-frame producer attached to the virtual camera so apps
+can see `NVIDIA Broadcast`, but it starts the physical webcam and GPU/effects
+pipeline only after another app opens the virtual camera.
+
+When the last consumer disconnects, the service waits a short grace period and
+returns to the lightweight idle camera.
+
+This avoids keeping the physical camera and GPU processing active all the time
+while preserving compatibility with `v4l2loopback exclusive_caps=1`.
+
+The effects pipeline runs as a child process. Returning to idle terminates that
+child process so ONNX/CuPy/GPU memory is released instead of being cached by the
+long-running monitor process.
+
 ## OBS
 
 Select these devices in OBS:

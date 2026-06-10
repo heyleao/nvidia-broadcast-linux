@@ -54,12 +54,15 @@ def _python_bin() -> str:
     return sys.executable
 
 
-def _module_wrapper(module: str) -> str:
+def _module_wrapper(module: str, *module_args: str) -> str:
     python = _python_bin()
+    extra_args = " ".join(module_args)
+    if extra_args:
+        extra_args = f" {extra_args}"
     return (
         "#!/usr/bin/env bash\n"
         "set -euo pipefail\n"
-        f'exec "{python}" -m {module} "$@"\n'
+        f'exec "{python}" -m {module}{extra_args} "$@"\n'
     )
 
 
@@ -229,7 +232,7 @@ def phase3_install(args: argparse.Namespace) -> int:
         print("Removed headless services and wrappers.")
         return 0
 
-    _write_executable(VCAM_BIN, _module_wrapper("nvbroadcast.vcam_service"))
+    _write_executable(VCAM_BIN, _module_wrapper("nvbroadcast.vcam_service", "--on-demand"))
     _write_executable(AUDIO_BIN, _module_wrapper("nvbroadcast.audio_service"))
     _write_executable(CLI_BIN, _module_wrapper("nvbroadcast.headless_cli"))
     _write_executable(CONTROL_BIN, _module_wrapper("nvbroadcast.headless_control"))

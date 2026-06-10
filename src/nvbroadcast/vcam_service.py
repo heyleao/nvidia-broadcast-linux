@@ -14,7 +14,9 @@ background removal mode used by the full application.
 """
 
 import argparse
+import os
 import signal
+import subprocess
 import sys
 
 import cv2
@@ -245,6 +247,173 @@ class HeadlessEffectsCamera:
             self.effects = None
 
 
+class OnDemandHeadlessCamera:
+    """Keep the loopback visible and start heavy processing only for consumers."""
+
+    def __init__(self, args: argparse.Namespace):
+        self.args = args
+        self.config = load_config()
+        self.loop = GLib.MainLoop()
+        self.vcam_device = args.vcam
+        self.idle_pipeline: Gst.Pipeline | None = None
+        self.active_process: subprocess.Popen | None = None
+        self.active = False
+        self.empty_polls = 0
+        self.poll_source_id = 0
+
+    def _output_format(self) -> str:
+        return OUTPUT_FORMATS.get(self.args.format.lower(), "YUY2")
+
+    def _resolution(self) -> tuple[int, int, int]:
+        width = self.args.width or self.config.video.width or DEFAULT_WIDTH
+        height = self.args.height or self.config.video.height or DEFAULT_HEIGHT
+        fps = self.args.fps or self.config.video.fps or DEFAULT_FPS
+        return width, height, fps
+
+    def _v4l2sink_segment(self) -> str:
+        return (
+            "identity drop-allocation=true ! "
+            f"v4l2sink device={self.vcam_device} io-mode=2 sync=false async=false"
+        )
+
+    def _consumer_pids(self) -> list[str]:
+        try:
+            result = subprocess.run(
+                ["fuser", self.vcam_device],
+                capture_output=True,
+                text=True,
+                timeout=1,
+            )
+        except Exception:
+            return []
+
+        own_pid = str(os.getpid())
+        active_pid = str(self.active_process.pid) if self.active_process is not None else ""
+        pids = []
+        for token in result.stdout.split():
+            cleaned = "".join(ch for ch in token if ch.isdigit())
+            if cleaned and cleaned not in (own_pid, active_pid) and cleaned not in pids:
+                pids.append(cleaned)
+        return pids
+
+    def _active_command(self) -> list[str]:
+        command = [
+            sys.executable,
+            "-m",
+            "nvbroadcast.vcam_service",
+            "--vcam",
+            self.vcam_device,
+            "--format",
+            self.args.format,
+        ]
+        if self.args.device:
+            command.extend(["--device", self.args.device])
+        if self.args.width:
+            command.extend(["--width", str(self.args.width)])
+        if self.args.height:
+            command.extend(["--height", str(self.args.height)])
+        if self.args.fps:
+            command.extend(["--fps", str(self.args.fps)])
+        return command
+
+    def _start_idle_pipeline(self) -> None:
+        if self.idle_pipeline is not None:
+            return
+
+        width, height, fps = self._resolution()
+        output_format = self._output_format()
+        pipeline_str = (
+            "videotestsrc pattern=black is-live=true ! "
+            f"video/x-raw,format={output_format},width={width},height={height},framerate={fps}/1 ! "
+            f"{self._v4l2sink_segment()}"
+        )
+        pipeline = Gst.parse_launch(pipeline_str)
+        ret = pipeline.set_state(Gst.State.PLAYING)
+        if ret == Gst.StateChangeReturn.FAILURE:
+            raise RuntimeError("failed to start idle virtual camera pipeline")
+        self.idle_pipeline = pipeline
+        print(
+            "[NVIDIA Broadcast VCam] On-demand idle camera ready "
+            f"at {self.vcam_device} ({width}x{height}@{fps}, {output_format})",
+            flush=True,
+        )
+
+    def _stop_idle_pipeline(self) -> None:
+        if self.idle_pipeline is None:
+            return
+        self.idle_pipeline.set_state(Gst.State.NULL)
+        self.idle_pipeline = None
+
+    def _start_active_camera(self) -> None:
+        if self.active:
+            return
+        print("[NVIDIA Broadcast VCam] Consumer detected; starting effects pipeline", flush=True)
+        self._stop_idle_pipeline()
+        self.active_process = subprocess.Popen(self._active_command())
+        self.active = True
+        self.empty_polls = 0
+
+    def _stop_active_camera(self) -> None:
+        if not self.active:
+            return
+        print("[NVIDIA Broadcast VCam] No consumers; returning to idle camera", flush=True)
+        if self.active_process is not None:
+            self.active_process.terminate()
+            try:
+                self.active_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.active_process.kill()
+                self.active_process.wait(timeout=5)
+        self.active_process = None
+        self.active = False
+        self.empty_polls = 0
+        self._start_idle_pipeline()
+
+    def _poll_consumers(self):
+        if self.active_process is not None and self.active_process.poll() is not None:
+            print("[NVIDIA Broadcast VCam] Effects pipeline exited; returning to idle camera", flush=True)
+            self.active_process = None
+            self.active = False
+            self.empty_polls = 0
+            self._start_idle_pipeline()
+
+        consumers = self._consumer_pids()
+        if consumers:
+            self.empty_polls = 0
+            if not self.active:
+                self._start_active_camera()
+            return True
+
+        if self.active:
+            self.empty_polls += 1
+            if self.empty_polls >= max(1, int(self.args.idle_grace_polls)):
+                self._stop_active_camera()
+        return True
+
+    def start(self) -> None:
+        Gst.init(None)
+        try:
+            self.vcam_device = ensure_virtual_camera()
+        except RuntimeError as e:
+            print(f"[NVIDIA Broadcast VCam] Error: {e}", file=sys.stderr)
+            raise SystemExit(1) from e
+
+        self._start_idle_pipeline()
+        self.poll_source_id = GLib.timeout_add_seconds(
+            max(1, int(self.args.consumer_poll_seconds)),
+            self._poll_consumers,
+        )
+        self._poll_consumers()
+
+    def stop(self) -> None:
+        if self.poll_source_id:
+            GLib.source_remove(self.poll_source_id)
+            self.poll_source_id = 0
+        if self.active:
+            self._stop_active_camera()
+        self._stop_idle_pipeline()
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="NVIDIA Broadcast Virtual Camera Service - headless effects pipeline"
@@ -265,9 +434,26 @@ def main() -> int:
         default="yuy2",
         help="Output pixel format (default: yuy2)",
     )
+    parser.add_argument(
+        "--on-demand",
+        action="store_true",
+        help="Keep a lightweight idle camera and start effects only when apps consume it",
+    )
+    parser.add_argument(
+        "--consumer-poll-seconds",
+        type=int,
+        default=2,
+        help="Seconds between virtual camera consumer checks in on-demand mode",
+    )
+    parser.add_argument(
+        "--idle-grace-polls",
+        type=int,
+        default=3,
+        help="Empty consumer polls before returning to idle mode",
+    )
     args = parser.parse_args()
 
-    service = HeadlessEffectsCamera(args)
+    service = OnDemandHeadlessCamera(args) if args.on_demand else HeadlessEffectsCamera(args)
 
     def shutdown(_signum, _frame):
         print("\n[NVIDIA Broadcast VCam] Shutting down...", flush=True)

@@ -38,8 +38,9 @@ def _active(service: str) -> bool:
 class HeadlessControlWindow(Adw.ApplicationWindow):
     def __init__(self, app: Adw.Application):
         super().__init__(application=app, title="NV Broadcast Headless")
-        self.set_default_size(360, 260)
+        self.set_default_size(360, 310)
         self.set_resizable(False)
+        self.connect("close-request", self._on_close_request)
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         root.set_margin_top(18)
@@ -67,6 +68,7 @@ class HeadlessControlWindow(Adw.ApplicationWindow):
         self._off_btn = Gtk.Button(label="Desligar")
         self._restart_btn = Gtk.Button(label="Reiniciar")
         self._logs_btn = Gtk.Button(label="Logs")
+        self._quit_btn = Gtk.Button(label="Quit")
 
         grid.attach(self._both_btn, 0, 0, 2, 1)
         grid.attach(self._cam_btn, 0, 1, 1, 1)
@@ -74,6 +76,7 @@ class HeadlessControlWindow(Adw.ApplicationWindow):
         grid.attach(self._restart_btn, 0, 2, 1, 1)
         grid.attach(self._off_btn, 1, 2, 1, 1)
         grid.attach(self._logs_btn, 0, 3, 2, 1)
+        grid.attach(self._quit_btn, 0, 4, 2, 1)
 
         self._both_btn.connect("clicked", self._on_both)
         self._cam_btn.connect("clicked", self._on_cam)
@@ -81,6 +84,7 @@ class HeadlessControlWindow(Adw.ApplicationWindow):
         self._off_btn.connect("clicked", self._on_off)
         self._restart_btn.connect("clicked", self._on_restart)
         self._logs_btn.connect("clicked", self._on_logs)
+        self._quit_btn.connect("clicked", self._on_quit)
 
         self._toast_overlay = Adw.ToastOverlay()
         self._toast_overlay.set_child(root)
@@ -180,6 +184,15 @@ class HeadlessControlWindow(Adw.ApplicationWindow):
                 continue
         self._toast("Nenhum terminal encontrado para abrir logs")
 
+    def _on_close_request(self, _window):
+        self.set_visible(False)
+        return True
+
+    def _on_quit(self, _button):
+        app = self.get_application()
+        if app is not None:
+            app.quit()
+
     def _refresh(self):
         if self._busy:
             return True
@@ -202,12 +215,13 @@ class HeadlessControlApp(Adw.Application):
             application_id=APP_CONTROL_ID,
             flags=Gio.ApplicationFlags.FLAGS_NONE,
         )
+        self._window = None
 
     def do_activate(self):
-        window = self.props.active_window
-        if window is None:
-            window = HeadlessControlWindow(self)
-        window.present()
+        if self._window is None:
+            self._window = HeadlessControlWindow(self)
+        self._window.set_visible(True)
+        self._window.present()
 
 
 def main() -> int:

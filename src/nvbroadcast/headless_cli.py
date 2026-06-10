@@ -34,6 +34,7 @@ VCAM_BIN = BIN_DIR / "nvbroadcast-vcam"
 AUDIO_BIN = BIN_DIR / "nvbroadcast-audio-headless"
 CLI_BIN = BIN_DIR / "nvbroadcast-headless"
 CONTROL_BIN = BIN_DIR / "nvbroadcast-headless-control"
+TRAY_BIN = BIN_DIR / "nvbroadcast-headless-tray"
 APPLICATIONS_DIR = Path.home() / ".local" / "share" / "applications"
 CONTROL_DESKTOP = APPLICATIONS_DIR / "nvbroadcast-headless-control.desktop"
 
@@ -225,7 +226,16 @@ def phase3_install(args: argparse.Namespace) -> int:
     if args.remove:
         for service in ("nvbroadcast-vcam.service", "nvbroadcast-audio.service"):
             _systemctl(["disable", "--now", service])
-        for path in (VCAM_SERVICE, AUDIO_SERVICE, VCAM_BIN, AUDIO_BIN, CLI_BIN, CONTROL_BIN, CONTROL_DESKTOP):
+        for path in (
+            VCAM_SERVICE,
+            AUDIO_SERVICE,
+            VCAM_BIN,
+            AUDIO_BIN,
+            CLI_BIN,
+            CONTROL_BIN,
+            TRAY_BIN,
+            CONTROL_DESKTOP,
+        ):
             if path.exists():
                 path.unlink()
         _systemctl(["daemon-reload"])
@@ -236,6 +246,7 @@ def phase3_install(args: argparse.Namespace) -> int:
     _write_executable(AUDIO_BIN, _module_wrapper("nvbroadcast.audio_service"))
     _write_executable(CLI_BIN, _module_wrapper("nvbroadcast.headless_cli"))
     _write_executable(CONTROL_BIN, _module_wrapper("nvbroadcast.headless_control"))
+    _write_executable(TRAY_BIN, _module_wrapper("nvbroadcast.headless_tray"))
     APPLICATIONS_DIR.mkdir(parents=True, exist_ok=True)
     CONTROL_DESKTOP.write_text(
         "\n".join(

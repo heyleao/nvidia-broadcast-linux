@@ -101,10 +101,15 @@ It can switch between:
 - Microphone only
 - Off
 - Restart services
+- Persistent system tray menu
 
 The control app does not run the heavy preview UI. It only controls the
 background services. The virtual microphone device is kept stable when the
 audio service is stopped so apps such as OBS do not lose their selected input.
+
+Closing the control window hides it. The tray icon stays available so the user
+can reopen the control window, toggle camera/microphone services, view logs, or
+quit the tray helper.
 
 ## On-Demand Camera
 

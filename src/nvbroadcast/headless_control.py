@@ -6,7 +6,9 @@
 
 from __future__ import annotations
 
+import shutil
 import subprocess
+import sys
 import threading
 
 import gi
@@ -216,12 +218,25 @@ class HeadlessControlApp(Adw.Application):
             flags=Gio.ApplicationFlags.FLAGS_NONE,
         )
         self._window = None
+        self._tray_process = None
+
+    def do_startup(self):
+        Adw.Application.do_startup(self)
+        self._start_tray()
 
     def do_activate(self):
         if self._window is None:
             self._window = HeadlessControlWindow(self)
         self._window.set_visible(True)
         self._window.present()
+
+    def _start_tray(self) -> None:
+        command = shutil.which("nvbroadcast-headless-tray")
+        args = [command] if command else [sys.executable, "-m", "nvbroadcast.headless_tray"]
+        try:
+            self._tray_process = subprocess.Popen(args)
+        except Exception as exc:
+            print(f"[NV Broadcast Headless] Tray unavailable: {exc}", file=sys.stderr)
 
 
 def main() -> int:

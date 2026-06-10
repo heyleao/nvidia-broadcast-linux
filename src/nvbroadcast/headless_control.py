@@ -40,7 +40,7 @@ def _active(service: str) -> bool:
 class HeadlessControlWindow(Adw.ApplicationWindow):
     def __init__(self, app: Adw.Application):
         super().__init__(application=app, title="NV Broadcast Headless")
-        self.set_default_size(360, 310)
+        self.set_default_size(360, 350)
         self.set_resizable(False)
         self.connect("close-request", self._on_close_request)
 
@@ -70,6 +70,7 @@ class HeadlessControlWindow(Adw.ApplicationWindow):
         self._off_btn = Gtk.Button(label="Desligar")
         self._restart_btn = Gtk.Button(label="Reiniciar")
         self._logs_btn = Gtk.Button(label="Logs")
+        self._minimize_btn = Gtk.Button(label="Minimizar")
         self._quit_btn = Gtk.Button(label="Quit")
 
         grid.attach(self._both_btn, 0, 0, 2, 1)
@@ -78,7 +79,8 @@ class HeadlessControlWindow(Adw.ApplicationWindow):
         grid.attach(self._restart_btn, 0, 2, 1, 1)
         grid.attach(self._off_btn, 1, 2, 1, 1)
         grid.attach(self._logs_btn, 0, 3, 2, 1)
-        grid.attach(self._quit_btn, 0, 4, 2, 1)
+        grid.attach(self._minimize_btn, 0, 4, 2, 1)
+        grid.attach(self._quit_btn, 0, 5, 2, 1)
 
         self._both_btn.connect("clicked", self._on_both)
         self._cam_btn.connect("clicked", self._on_cam)
@@ -86,6 +88,7 @@ class HeadlessControlWindow(Adw.ApplicationWindow):
         self._off_btn.connect("clicked", self._on_off)
         self._restart_btn.connect("clicked", self._on_restart)
         self._logs_btn.connect("clicked", self._on_logs)
+        self._minimize_btn.connect("clicked", self._on_minimize)
         self._quit_btn.connect("clicked", self._on_quit)
 
         self._toast_overlay = Adw.ToastOverlay()
@@ -108,6 +111,7 @@ class HeadlessControlWindow(Adw.ApplicationWindow):
             self._off_btn,
             self._restart_btn,
             self._logs_btn,
+            self._minimize_btn,
         ):
             button.set_sensitive(not busy)
         if busy:
@@ -189,6 +193,9 @@ class HeadlessControlWindow(Adw.ApplicationWindow):
     def _on_close_request(self, _window):
         self.set_visible(False)
         return True
+
+    def _on_minimize(self, _button):
+        self.set_visible(False)
 
     def _on_quit(self, _button):
         app = self.get_application()

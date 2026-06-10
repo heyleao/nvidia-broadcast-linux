@@ -101,11 +101,17 @@ It can switch between:
 - Microphone only
 - Off
 - Restart services
+- Headless mode/configuration window
 - Persistent system tray menu
 
 The control app does not run the heavy preview UI. It only controls the
 background services. The virtual microphone device is kept stable when the
 audio service is stopped so apps such as OBS do not lose their selected input.
+
+The configuration window can update the headless processing mode, resolution,
+FPS, background removal mode, mirroring, microphone noise removal, and voice FX.
+Saving restarts only the services that are already running, so disabled services
+stay disabled.
 
 Closing the control window hides it. The tray icon stays available so the user
 can reopen the control window, toggle camera/microphone services, view logs, or

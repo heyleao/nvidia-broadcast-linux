@@ -89,6 +89,11 @@ class PackagingMetadataTests(unittest.TestCase):
             5,
         )
 
+    def test_snap_workflow_uses_current_snapcraft_revisions_command(self):
+        workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+        self.assertIn('snapcraft revisions "$SNAP_NAME"', workflow)
+        self.assertNotIn("snapcraft list-revisions", workflow)
+
     def test_about_window_lists_public_backers_by_tier(self):
         window = (REPO_ROOT / "src" / "nvbroadcast" / "ui" / "window.py").read_text()
         self.assertIn('add_credit_section("Backers & Supporters"', window)

@@ -47,7 +47,7 @@ jobs:
             exit 1
           fi
 
-          if ! snapcraft list-revisions "$SNAP_NAME" >/tmp/snap-store-check.log 2>&1; then
+          if ! snapcraft revisions "$SNAP_NAME" >/tmp/snap-store-check.log 2>&1; then
             cat /tmp/snap-store-check.log
             if grep -qi "resource-not-found: Snap not found for name=$SNAP_NAME" /tmp/snap-store-check.log; then
               echo "::error::Snap '$SNAP_NAME' is not registered in the Snap Store for the account behind SNAP_TOKEN. Register it first with 'snapcraft register $SNAP_NAME' or rename snap/snapcraft.yaml to a snap name already registered to that account."

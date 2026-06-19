@@ -94,6 +94,14 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn('snapcraft revisions "$SNAP_NAME"', workflow)
         self.assertNotIn("snapcraft list-revisions", workflow)
 
+    def test_snap_workflow_supports_manual_release_recovery(self):
+        workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+        self.assertIn("publish:", workflow)
+        self.assertIn("release_tag:", workflow)
+        self.assertIn("id: release-target", workflow)
+        self.assertIn("release_tag is required when publishing from workflow_dispatch", workflow)
+        self.assertIn("tag_name: ${{ steps.release-target.outputs.tag }}", workflow)
+
     def test_about_window_lists_public_backers_by_tier(self):
         window = (REPO_ROOT / "src" / "nvbroadcast" / "ui" / "window.py").read_text()
         self.assertIn('add_credit_section("Backers & Supporters"', window)

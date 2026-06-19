@@ -190,6 +190,22 @@ class AutoCaptureTuningTests(unittest.TestCase):
         self.assertEqual(app.config.video.quality_preset, "performance")
 
     @mock.patch("nvbroadcast.app.save_config")
+    def test_doczeus_mode_uses_ultra_quality_preset(self, _save):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.video.quality_preset = "quality"
+        app._video_effects = SimpleNamespace(quality="quality")
+        app._window = None
+        app.set_performance_profile = mock.Mock()
+
+        changed = NVBroadcastApp.apply_mode_key(app, "doczeus")
+
+        self.assertTrue(changed)
+        app.set_performance_profile.assert_called_once()
+        self.assertEqual(app._video_effects.quality, "ultra")
+        self.assertEqual(app.config.video.quality_preset, "ultra")
+
+    @mock.patch("nvbroadcast.app.save_config")
     def test_restore_settings_normalizes_stale_named_mode_quality(self, save_config):
         app = NVBroadcastApp.__new__(NVBroadcastApp)
         app.config = AppConfig()

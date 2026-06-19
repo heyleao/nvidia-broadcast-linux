@@ -82,7 +82,7 @@ _MODE_LABELS = {
 }
 
 _MODE_QUALITY_PRESETS = {
-    "doczeus": "quality",
+    "doczeus": "ultra",
     "cuda_max": "quality",
     "cuda_balanced": "balanced",
     "zeus": "balanced",

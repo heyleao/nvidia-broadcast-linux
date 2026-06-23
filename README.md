@@ -48,8 +48,6 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 - **Safer Camera Auto-Detection** — Startup now avoids stale, metadata-only, and virtual-loopback camera nodes after reboot, reducing blank preview and “no effects” cases
 - **Headless Virtual Camera Fixed Too** — `nvbroadcast-vcam` uses the same camera compatibility path as the main app, so OBS-only workflows get the same fix
 - **CUDA Runtime Packaging Fixed** — Source, Debian, RPM, and amd64 Snap installs now use the correct package paths for the CUDA mode runtime
-- **DocZeus, Zeus, and Killer Preserved** — The named premium processing modes remain unchanged; this patch focuses on camera compatibility and packaging reliability
-- **Snap Release Recovery Improved** — Manual Snap publishing can recover cleanly from an existing GitHub release tag, and the Snap Store validation command uses the current Snapcraft flow
 - **Regression Tests Added** — Release checks now cover raw-camera fallback, camera-node filtering, headless virtual camera behavior, and package metadata consistency
 
 > If you are still on `v1.1.10` or older, update to `v1.1.11`. This is the recommended stable patch for OBS camera compatibility and package install reliability.

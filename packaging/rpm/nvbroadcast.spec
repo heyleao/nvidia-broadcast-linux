@@ -154,8 +154,6 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 - Avoid stale, metadata-only, and virtual-loopback camera nodes after reboot or device-order changes
 - Apply the same camera compatibility path to the headless virtual camera command
 - Fix CUDA runtime package paths for source, Debian, RPM, and amd64 Snap installs
-- Keep DocZeus, Zeus, and Killer as the named premium processing modes
-- Improve manual Snap release recovery and Snap Store validation
 - Add regression coverage for camera-mode fallback, camera-node filtering, headless virtual camera behavior, and package metadata
 
 * Fri Jun 19 2026 doczeus <harshit@kshoonya.com> - 1.1.10-1

@@ -18,11 +18,6 @@ description: |
     path as the main app.
   - Source, Debian, RPM, and amd64 Snap installs now use the corrected CUDA
     runtime package paths for NVIDIA systems.
-  - DocZeus, Zeus, and Killer remain the named premium processing modes; this
-    update keeps those modes intact while improving camera compatibility and
-    package reliability.
-  - Manual Snap publishing can recover cleanly from an existing GitHub release
-    tag, and Snap Store validation uses the current Snapcraft command.
   - Source, Debian, RPM, and amd64 Snap installs now install the CUDA mode
     runtime on NVIDIA systems, so CUDA modes get both GPU compositing and ONNX
     GPU inference instead of falling back to CPU inference after a partial

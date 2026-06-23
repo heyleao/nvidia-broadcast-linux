@@ -419,6 +419,19 @@ fi
 "$VENV_DIR/bin/pip" install "$SCRIPT_DIR" -q
 echo "Core packages installed."
 
+CUDA_EXTRA_INSTALLED=false
+CUDA_ACCEL_AVAILABLE=false
+if [ "$HAS_NVIDIA" = true ]; then
+    echo "Installing NVIDIA CUDA inference/runtime packages..."
+    if "$VENV_DIR/bin/pip" install --upgrade "$SCRIPT_DIR[cuda]" -q 2>&1; then
+        CUDA_EXTRA_INSTALLED=true
+        echo "CUDA runtime packages installed."
+    else
+        echo "WARNING: CUDA runtime package installation failed. Continuing with CPU fallback."
+        echo "  Retry later: $VENV_DIR/bin/pip install --upgrade \"$SCRIPT_DIR[cuda]\""
+    fi
+fi
+
 # Verify critical Python packages
 echo ""
 echo "Verifying core dependencies..."
@@ -460,6 +473,7 @@ else:
 
 if [ "$GPU_RESULT" = "CUDA_OK" ] || [ "$GPU_RESULT" = "TRT_OK" ]; then
     echo "  CUDA acceleration ... OK"
+    CUDA_ACCEL_AVAILABLE=true
 else
     echo "  WARNING: CUDA not available, will run on CPU (slower)"
 fi
@@ -477,20 +491,20 @@ if [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -ge 14 ]; then
 fi
 echo ""
 
-# CuPy (GPU compositing + fused kernel)
+# CuPy compositing retry. The full CUDA inference runtime is installed by the
+# project cuda extra above; this fallback only repairs missing GPU blending.
 CUPY_INSTALLED=false
 if "$VENV_DIR/bin/python" -c "import cupy" 2>/dev/null; then
-    echo "  [installed] CuPy CUDA — GPU compositing + fused CUDA kernel"
+    echo "  [installed] CuPy CUDA — GPU compositing runtime"
     CUPY_INSTALLED=true
 else
-    echo "  1) CuPy CUDA (~800MB) — Unlocks:"
-    echo "     - Killer mode (48fps, fused CUDA kernel compositing)"
-    echo "     - Zeus mode (33fps, GPU-optimized inference)"
-    echo "     - DocZeus mode (full quality + 0.1ms fused compositing)"
-    echo "     - GPU alpha blending (150x faster than CPU)"
+    echo "  1) CuPy CUDA compositing retry (~800MB) — Repairs:"
+    echo "     - Fused CUDA kernel compositing for DocZeus/Killer"
+    echo "     - GPU alpha blending when CUDA inference is already available"
+    echo "     - Lower CPU cost for background replacement"
     echo ""
     if [ "$HAS_NVIDIA" = true ]; then
-        read -rp "  Install CuPy? [Y/n] " install_cupy
+        read -rp "  Install CuPy compositing runtime? [Y/n] " install_cupy
         install_cupy="${install_cupy:-Y}"
         if [[ "$install_cupy" =~ ^[Yy]$ ]]; then
             echo "  Installing CuPy (this may take a few minutes)..."
@@ -566,7 +580,20 @@ echo ""
 
 # Summary of optional packages
 echo "  Optional packages summary:"
-echo "    CuPy:     $( [ "$CUPY_INSTALLED" = true ] && echo "INSTALLED (Killer/Zeus/DocZeus modes)" || echo "NOT INSTALLED (CPU modes only)" )"
+if [ "$CUDA_ACCEL_AVAILABLE" = true ]; then
+    echo "    CUDA runtime: INSTALLED (GPU inference available)"
+elif [ "$CUDA_EXTRA_INSTALLED" = true ]; then
+    echo "    CUDA runtime: INSTALLED (provider check still reported CPU fallback)"
+else
+    echo "    CUDA runtime: NOT INSTALLED (CPU inference fallback)"
+fi
+if [ "$CUPY_INSTALLED" = true ] && [ "$CUDA_ACCEL_AVAILABLE" = true ]; then
+    echo "    CuPy:     INSTALLED (CUDA modes available)"
+elif [ "$CUPY_INSTALLED" = true ]; then
+    echo "    CuPy:     INSTALLED (CUDA modes still need GPU inference runtime)"
+else
+    echo "    CuPy:     NOT INSTALLED (CPU modes only)"
+fi
 if [ "$TRT_INSTALLED" = true ]; then
     echo "    TensorRT: INSTALLED (optimized inference)"
 elif [ "$TRT_SUPPORTED" = true ]; then
@@ -783,7 +810,14 @@ echo "========================================="
 echo ""
 echo "  System: $DISTRO_NAME ($PKG_MANAGER)"
 echo "  Compositing: $COMPOSITING"
-echo "  CuPy: $( [ "$CUPY_INSTALLED" = true ] && echo "YES (Killer/Zeus/DocZeus modes)" || echo "NO (install later for GPU modes)" )"
+echo "  CUDA inference: $( [ "$CUDA_ACCEL_AVAILABLE" = true ] && echo "YES" || echo "NO (CPU fallback)" )"
+if [ "$CUPY_INSTALLED" = true ] && [ "$CUDA_ACCEL_AVAILABLE" = true ]; then
+    echo "  CuPy: YES (CUDA modes available)"
+elif [ "$CUPY_INSTALLED" = true ]; then
+    echo "  CuPy: YES (CUDA modes still need GPU inference runtime)"
+else
+    echo "  CuPy: NO (install later for GPU modes)"
+fi
 if [ "$TRT_INSTALLED" = true ]; then
     echo "  TensorRT: YES"
 elif [ "$TRT_SUPPORTED" = true ]; then
@@ -801,7 +835,7 @@ if [ -n "$PY_RUNTIME_NOTICE" ]; then
 fi
 echo ""
 echo "  Available modes:"
-if [ "$CUPY_INSTALLED" = true ]; then
+if [ "$CUPY_INSTALLED" = true ] && [ "$CUDA_ACCEL_AVAILABLE" = true ]; then
     if [ "$TRT_SUPPORTED" = true ]; then
         echo "    Killer  — 48fps fused CUDA (fastest)"
         echo "    Zeus    — 33fps GPU-optimized"
@@ -810,8 +844,16 @@ if [ "$CUPY_INSTALLED" = true ]; then
         echo "    Zeus    — unavailable on Python $PY_VER (TensorRT requires 3.8-3.13)"
     fi
     echo "    DocZeus — 23fps full quality + fused kernel"
+elif [ "$CUPY_INSTALLED" = true ]; then
+    echo "    Killer/Zeus/DocZeus — unavailable until CUDA inference runtime installs"
 fi
-echo "    CUDA Max/Balanced/Perf — standard GPU modes"
+if [ "$CUDA_ACCEL_AVAILABLE" = true ] && [ "$CUPY_INSTALLED" = true ]; then
+    echo "    CUDA Max/Balanced/Perf — standard GPU modes"
+elif [ "$CUDA_ACCEL_AVAILABLE" = true ]; then
+    echo "    CUDA Max/Balanced/Perf — unavailable until CuPy installs"
+else
+    echo "    CUDA Max/Balanced/Perf — unavailable until CUDA runtime installs"
+fi
 echo "    CPU Quality/Light/Low  — CPU fallback"
 echo ""
 echo "  Recent patch highlights:"
@@ -822,6 +864,7 @@ echo "    Meeting Transcription    — faster startup and cleaner saved audio"
 echo "    Resolution Safety        — save changes without hanging the stream"
 echo ""
 echo "  To install optional packages later:"
+echo "    CUDA runtime: $VENV_DIR/bin/pip install --upgrade \"$SCRIPT_DIR[cuda]\""
 echo "    CuPy:     $VENV_DIR/bin/pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12"
 echo "    TensorRT: $VENV_DIR/bin/pip install tensorrt-cu12"
 echo ""

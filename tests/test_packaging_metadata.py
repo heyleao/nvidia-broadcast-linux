@@ -18,6 +18,41 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn('if CUPY_TEST=$("$VENV_DIR/bin/python" -c "import cupy; a=cupy.ones(10); print(\'OK\')" 2>&1); then', install_script)
         self.assertIn("CuPy installed but verification failed.", install_script)
 
+    def test_source_installer_installs_cuda_extra_before_gpu_verification(self):
+        install_script = (REPO_ROOT / "install.sh").read_text()
+        self.assertIn('"$VENV_DIR/bin/pip" install --upgrade "$SCRIPT_DIR[cuda]"', install_script)
+        self.assertLess(
+            install_script.index('"$VENV_DIR/bin/pip" install --upgrade "$SCRIPT_DIR[cuda]"'),
+            install_script.index("Verifying GPU acceleration"),
+        )
+        self.assertIn("CUDA_ACCEL_AVAILABLE=true", install_script)
+        self.assertIn("CUDA runtime: $VENV_DIR/bin/pip install --upgrade", install_script)
+        self.assertIn("unavailable until CuPy installs", install_script)
+        self.assertIn("CUDA modes still need GPU inference runtime", install_script)
+
+    def test_readme_documents_cuda_extra_for_source_gpu_installs(self):
+        readme = (REPO_ROOT / "README.md").read_text()
+        self.assertIn('pip install -e ".[cuda]"', readme)
+        self.assertIn('.venv/bin/pip install --upgrade ".[cuda]"', readme)
+        self.assertIn("CUDAExecutionProvider", readme)
+
+    def test_cuda_extra_contains_onnxruntime_gpu_provider(self):
+        pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+        self.assertIn("cuda = [", pyproject)
+        self.assertIn('"onnxruntime-gpu==1.24.4"', pyproject)
+        self.assertIn('"onnxruntime>=1.24.4,<1.25"', pyproject)
+        self.assertNotIn('"pycuda>=2024.1"', pyproject)
+        self.assertNotIn('"nvidia-cusparse-cu12"', pyproject)
+        self.assertNotIn('"nvidia-cusolver-cu12"', pyproject)
+
+    def test_linux_package_postinstalls_install_cuda_extra(self):
+        deb_postinst = (REPO_ROOT / "packaging" / "debian" / "postinst").read_text()
+        rpm_spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        rpm_postinst = rpm_spec.split("%post", 1)[1].split("%preun", 1)[0]
+        self.assertIn('pip" install --upgrade "$INSTALL_DIR[cuda]"', deb_postinst)
+        self.assertIn('pip install --upgrade "/opt/nvbroadcast[cuda]"', rpm_postinst)
+        self.assertNotIn("pip\" install cupy-cuda12x nvidia-cuda-nvrtc-cu12", deb_postinst)
+
     def test_debian_postinst_installs_meeting_runtime(self):
         postinst = (REPO_ROOT / "packaging" / "debian" / "postinst").read_text()
         self.assertIn("pip\" install --no-deps faster-whisper", postinst)
@@ -53,6 +88,11 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("- ctranslate2", snapcraft)
         self.assertIn("- httpx", snapcraft)
         self.assertNotIn("- openai-whisper", snapcraft)
+        self.assertIn("onnxruntime==1.24.4", snapcraft)
+        self.assertIn("onnxruntime-gpu==1.24.4", snapcraft)
+        self.assertIn("Installing amd64 CUDA mode runtime into Snap", snapcraft)
+        self.assertIn("Skipping CUDA mode runtime", snapcraft)
+        self.assertIn("arm64 Snap build stays portable and CPU-safe", snapcraft)
 
     def test_packaged_backgrounds_include_bundled_default(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
@@ -71,6 +111,9 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("ctranslate2", requirements)
         self.assertIn("httpx", requirements)
         self.assertIn('openai-whisper>=20231117; python_version < "3.14"', requirements)
+        self.assertIn("onnxruntime-gpu==1.24.4", requirements)
+        self.assertIn("onnxruntime>=1.24.4,<1.25", requirements)
+        self.assertNotIn("onnxruntime-gpu>=1.16", requirements)
         self.assertNotIn("\nopenai-whisper>=20231117\n", requirements)
 
     def test_sponsor_walls_keep_action_markers_balanced(self):

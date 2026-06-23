@@ -10,8 +10,8 @@ psutil>=5.9
 
 # AI / Inference
 mediapipe>=0.10
-onnxruntime-gpu>=1.16; sys_platform == "linux"
-onnxruntime>=1.16; sys_platform == "darwin"
+onnxruntime-gpu==1.24.4; sys_platform == "linux"
+onnxruntime>=1.24.4,<1.25; sys_platform == "darwin"
 onnx>=1.14
 
 # AI Meeting Transcription (local Whisper, no cloud)
@@ -43,8 +43,6 @@ nvidia-cuda-runtime-cu12
 nvidia-cudnn-cu12
 nvidia-curand-cu12
 nvidia-cufft-cu12
-nvidia-cusparse-cu12
-nvidia-cusolver-cu12
 nvidia-nvjitlink-cu12
 nvidia-cuda-nvrtc-cu12
 

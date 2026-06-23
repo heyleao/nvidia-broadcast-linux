@@ -119,9 +119,9 @@ fi
 /opt/nvbroadcast/.venv/bin/pip install --no-deps faster-whisper -q 2>/dev/null && \
     /opt/nvbroadcast/.venv/bin/pip install ctranslate2 huggingface-hub httpx tokenizers soundfile av tqdm -q 2>/dev/null || true
 
-# Install CuPy if NVIDIA GPU present
+# Install CUDA mode runtime if NVIDIA GPU present
 if command -v nvidia-smi &>/dev/null; then
-    /opt/nvbroadcast/.venv/bin/pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12 -q 2>/dev/null || true
+    /opt/nvbroadcast/.venv/bin/pip install --upgrade "/opt/nvbroadcast[cuda]" -q 2>/dev/null || true
 fi
 
 # Load v4l2loopback
@@ -148,6 +148,7 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 - Improve live background replace edge stability around hair, shoulders, hands, and fingers
 - Apply replace-mode fringe cleanup in the fused CUDA compositing path and reduce CPU cleanup cost
 - Add Auto/GPU Focused/CPU Focused compute controls for clearer performance tradeoffs
+- Install the full CUDA mode runtime on NVIDIA systems so ONNX inference does not stay CPU-only
 - Keep meeting runtime packaging on faster-whisper and guard openai-whisper on newer Python versions
 - Add auto-updating GitHub Sponsors walls and visible sponsor recognition
 

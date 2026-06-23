@@ -30,7 +30,7 @@ SETUP_MODES = [
     {
         "key": "gpu_cuda_best",
         "label": "CUDA GPU - Maximum Quality",
-        "description": "CuPy CUDA compositing. All processing on GPU. Near-zero CPU.",
+        "description": "CUDA mode runtime for GPU compositing and ONNX GPU inference.",
         "compositing": "cupy",
         "profile": "max_quality",
         "needs_cupy": True,
@@ -158,7 +158,7 @@ class SetupWizard(Adw.Window):
         if c["has_gl_compositor"]:
             features.append("OpenGL compositor")
         if c["has_cupy"]:
-            features.append("CuPy CUDA")
+            features.append("CUDA mode runtime")
         if features:
             sys_info.append(f"Available: {', '.join(features)}")
 
@@ -211,7 +211,7 @@ class SetupWizard(Adw.Window):
                 available = False
                 reason = " [needs GStreamer GL plugins]"
             if mode["needs_cupy"] and not c["has_cupy"]:
-                reason = " [will install CuPy ~800MB]"
+                reason = " [will install CUDA runtime ~2GB]"
                 # Still available — we'll install it
             if mode["min_vram"] > c["gpu_vram_mb"] and c["has_nvidia"]:
                 available = False
@@ -299,12 +299,12 @@ class SetupWizard(Adw.Window):
     def _on_start(self, btn):
         mode = next(m for m in SETUP_MODES if m["key"] == self._selected_mode_key)
 
-        # If CuPy mode selected but not installed, install it first
+        # If a CUDA mode is selected but the full runtime is missing, install it first.
         if mode["needs_cupy"] and not self._caps["has_cupy"]:
             self._install_key = "cupy"
             self._prompt_install(
-                "Install GPU compositing files?",
-                "This mode needs the CUDA compositing runtime. The download runs in the background and you can keep using other parts of the app.",
+                "Install CUDA mode runtime?",
+                "This mode needs CUDA compositing and ONNX GPU inference packages. The download runs in the background and you can keep using other parts of the app.",
             )
             return
 

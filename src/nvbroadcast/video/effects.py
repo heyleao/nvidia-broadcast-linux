@@ -30,7 +30,7 @@ import numpy as np
 import cv2
 
 from nvbroadcast.core.constants import CONFIG_DIR
-from nvbroadcast.core.platform import get_tensorrt_lib_dirs, get_trt_cache_dir
+from nvbroadcast.core.platform import get_tensorrt_lib_dirs, get_trt_cache_dir, preload_nvidia_runtime_libs
 
 
 def _preload_cuda_libs():
@@ -41,20 +41,7 @@ def _preload_cuda_libs():
     if _platform.system() == "Darwin":
         return
     try:
-        import importlib.util
-        # CUDA runtime libs
-        for pkg in ("nvidia.cuda_runtime", "nvidia.cublas", "nvidia.cudnn",
-                    "nvidia.curand", "nvidia.cufft", "nvidia.cusparse",
-                    "nvidia.cusolver", "nvidia.nvjitlink", "nvidia.cuda_nvrtc"):
-            spec = importlib.util.find_spec(pkg)
-            if spec and spec.submodule_search_locations:
-                lib_dir = Path(spec.submodule_search_locations[0]) / "lib"
-                if lib_dir.is_dir():
-                    for so in sorted(lib_dir.glob("*.so*")):
-                        try:
-                            ctypes.CDLL(str(so), mode=ctypes.RTLD_GLOBAL)
-                        except OSError:
-                            pass
+        preload_nvidia_runtime_libs()
         # TensorRT libs (Zeus/Killer modes)
         for lib_dir in get_tensorrt_lib_dirs():
             # Load main libs first, then builders

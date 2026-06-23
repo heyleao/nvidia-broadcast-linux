@@ -9,6 +9,12 @@ description: |
   local meeting transcription into one app.
 
   Recommended stable update:
+  - Source, Debian, RPM, and amd64 Snap installs now install the CUDA mode
+    runtime on NVIDIA systems, so CUDA modes get both GPU compositing and ONNX
+    GPU inference instead of falling back to CPU inference after a partial
+    install.
+  - The arm64 Snap build stays portable and CPU-safe because ONNX Runtime GPU
+    wheels are not published for Linux arm64 yet.
   - v1.1.10 improves live background replacement edges around hair, shoulders,
     raised hands, and finger gaps while reducing the extra CPU cost added by
     edge cleanup.
@@ -93,7 +99,7 @@ parts:
       - numpy
       - opencv-python-headless
       - mediapipe
-      - onnxruntime
+      - onnxruntime==1.24.4
       - onnx
       - faster-whisper
       - ctranslate2
@@ -123,6 +129,27 @@ parts:
       - gir1.2-ayatanaappindicator3-0.1
     override-build: |
       craftctl default
+      SNAP_PYTHON_SITE="$CRAFT_PART_INSTALL/lib/python3/dist-packages"
+      mkdir -p "$SNAP_PYTHON_SITE"
+      case "${CRAFT_ARCH_BUILD_FOR:-$(uname -m)}" in
+        amd64|x86_64)
+          echo "Installing amd64 CUDA mode runtime into Snap..."
+          python3 -m pip install --no-cache-dir --upgrade \
+            --target "$SNAP_PYTHON_SITE" \
+            onnxruntime-gpu==1.24.4 \
+            cupy-cuda12x \
+            nvidia-cublas-cu12 \
+            nvidia-cuda-runtime-cu12 \
+            nvidia-cudnn-cu12 \
+            nvidia-curand-cu12 \
+            nvidia-cufft-cu12 \
+            nvidia-nvjitlink-cu12 \
+            nvidia-cuda-nvrtc-cu12
+          ;;
+        *)
+          echo "Skipping CUDA mode runtime for ${CRAFT_ARCH_BUILD_FOR:-$(uname -m)} Snap build."
+          ;;
+      esac
       # Create wrapper script
       mkdir -p $CRAFT_PART_INSTALL/bin
       cat > $CRAFT_PART_INSTALL/bin/nvbroadcast-wrapper << 'EOF'

@@ -138,7 +138,7 @@ COMPOSITING_BACKENDS = {
     },
     "cupy": {
         "label": "CuPy CUDA (GPU — maximum performance)",
-        "description": "CUDA GPU arrays for compositing — requires cupy-cuda12x (~800MB)",
+        "description": "CUDA compositing plus ONNX GPU inference — requires the CUDA mode runtime (~2GB)",
         "requires": ["cupy"],
     },
 }
@@ -501,7 +501,13 @@ def detect_system_capabilities() -> dict:
     """Detect system hardware and recommend the best configuration."""
     import os
     import subprocess
-    from nvbroadcast.core.platform import IS_MACOS, IS_LINUX, IS_ARM64, supports_linux_gpu_stack
+    from nvbroadcast.core.platform import (
+        IS_ARM64,
+        IS_LINUX,
+        IS_MACOS,
+        has_cuda_inference_runtime,
+        supports_linux_gpu_stack,
+    )
 
     caps = {
         "cpu_cores": os.cpu_count() or 4,
@@ -557,11 +563,11 @@ def detect_system_capabilities() -> dict:
     except Exception:
         pass
 
-    # CuPy
+    # Complete CUDA mode runtime: CuPy compositing plus ONNX CUDA inference.
     if supports_linux_gpu_stack():
         try:
             import cupy  # noqa: F401
-            caps["has_cupy"] = True
+            caps["has_cupy"] = has_cuda_inference_runtime()
         except ImportError:
             pass
 
@@ -603,12 +609,12 @@ def detect_compositing_backends() -> dict[str, bool]:
     except Exception:
         available["gstreamer_gl"] = False
 
-    # Check CuPy
-    from nvbroadcast.core.platform import supports_linux_gpu_stack
+    # Check complete CUDA mode runtime: CuPy compositing plus ONNX CUDA inference.
+    from nvbroadcast.core.platform import has_cuda_inference_runtime, supports_linux_gpu_stack
     if supports_linux_gpu_stack():
         try:
             import cupy  # noqa: F401
-            available["cupy"] = True
+            available["cupy"] = has_cuda_inference_runtime()
         except ImportError:
             available["cupy"] = False
     else:

@@ -25,6 +25,15 @@ TENSORRT_LIB_MODULES = (
     "tensorrt_cu12_libs",
     "tensorrt_cu13_libs",
 )
+NVIDIA_RUNTIME_LIB_MODULES = (
+    "nvidia.cuda_runtime",
+    "nvidia.cublas",
+    "nvidia.cudnn",
+    "nvidia.curand",
+    "nvidia.cufft",
+    "nvidia.nvjitlink",
+    "nvidia.cuda_nvrtc",
+)
 
 
 def _coerce_version_info(
@@ -264,6 +273,42 @@ def has_tensorrt_runtime() -> bool:
         return False
 
     return False
+
+
+def preload_nvidia_runtime_libs() -> None:
+    """Preload pip-installed NVIDIA runtime libraries from nested wheel paths."""
+    if not IS_LINUX:
+        return
+    try:
+        import importlib.util
+        for pkg in NVIDIA_RUNTIME_LIB_MODULES:
+            spec = importlib.util.find_spec(pkg)
+            if spec and spec.submodule_search_locations:
+                lib_dir = Path(spec.submodule_search_locations[0]) / "lib"
+                if not lib_dir.is_dir():
+                    continue
+                for so in sorted(lib_dir.glob("*.so*")):
+                    try:
+                        ctypes.CDLL(str(so), mode=ctypes.RTLD_GLOBAL)
+                    except OSError:
+                        pass
+    except Exception:
+        pass
+
+
+def has_cuda_inference_runtime() -> bool:
+    """Return True when ONNX Runtime can run model inference on CUDA."""
+    if not supports_linux_gpu_stack():
+        return False
+    preload_nvidia_runtime_libs()
+    try:
+        import onnxruntime as ort
+    except Exception:
+        return False
+    try:
+        return "CUDAExecutionProvider" in ort.get_available_providers()
+    except Exception:
+        return False
 
 
 def get_default_camera_device() -> str:

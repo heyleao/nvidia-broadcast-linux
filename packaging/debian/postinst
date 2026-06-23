@@ -21,9 +21,9 @@ fi
 
 # Install CuPy if NVIDIA GPU detected
 if command -v nvidia-smi &>/dev/null; then
-    echo "NV Broadcast: NVIDIA GPU detected, installing GPU packages..."
-    "$VENV_DIR/bin/pip" install cupy-cuda12x nvidia-cuda-nvrtc-cu12 -q 2>/dev/null || \
-        echo "NV Broadcast: CuPy install failed (optional - CPU modes still work)"
+    echo "NV Broadcast: NVIDIA GPU detected, installing CUDA mode runtime..."
+    "$VENV_DIR/bin/pip" install --upgrade "$INSTALL_DIR[cuda]" -q 2>/dev/null || \
+        echo "NV Broadcast: CUDA runtime install failed (optional - CPU modes still work)"
 fi
 
 # Setup v4l2loopback

@@ -47,6 +47,8 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 - **Cleaner Live Background Edges** — Background replace is steadier around hair, shoulders, raised hands, and finger gaps during motion
 - **Less Edge Cleanup Cost** — The DocZeus/fused CUDA path now uses the same replace-mode foreground cleanup while the CPU fringe cleanup does less full-frame work
 - **New Compute Selector** — Users can choose Auto, GPU Focused, or CPU Focused depending on whether they want automatic tuning, CUDA preference, or lower GPU load
+- **CUDA Install Path Fixed** — Source, Debian, RPM, and amd64 Snap installs now install the CUDA mode runtime on NVIDIA systems instead of installing only CuPy and leaving ONNX inference on CPU
+- **Clearer GPU Runtime Checks** — CUDA modes now require both CuPy compositing and the ONNX Runtime `CUDAExecutionProvider`, so the app no longer treats a partial GPU install as ready
 - **Meeting Dependencies Stay Safe** — Packaged installs continue using the lighter `faster-whisper` runtime, and `openai-whisper` remains guarded for Python versions that support it
 - **Sponsors Are Visible** — Public GitHub Sponsors now show in the README, dedicated sponsor wall, and About window so users can see who is backing the project
 
@@ -286,6 +288,8 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 > **Edge Refine** toggle available for Killer and Zeus modes — adds ~27ms but recovers 89.9% of max quality edges.
 >
 > Switch modes anytime from the **Mode** dropdown. No restart needed.
+>
+> CUDA modes require the CUDA mode runtime: CuPy for compositing plus ONNX Runtime with `CUDAExecutionProvider` for model inference. Source, `.deb`, `.rpm`, and amd64 Snap installs handle this automatically on NVIDIA systems. The arm64 Snap build stays CPU-safe because ONNX Runtime GPU wheels are not published for Linux arm64 yet.
 
 ---
 
@@ -452,6 +456,8 @@ sudo snap install nvbroadcast
 
 Snap users typically receive background refreshes from `snapd`. When the app sees a newer stable release, the in-app update button opens the Snap Store listing so the user can move directly into the store-managed upgrade path.
 
+The amd64 Snap build includes the CUDA mode runtime for NVIDIA systems. The arm64 Snap build stays CPU-safe because the required ONNX Runtime GPU wheels are not available for Linux arm64 yet. If CUDA modes are still unavailable on amd64 Snap, use the source installer, `.deb`, or `.rpm` release package as the fallback.
+
 Packaged releases are intended to include the local meeting transcription runtime. Source installs from this repo can still use the in-app runtime installer flow for optional components.
 
 ### Linux Installer Details
@@ -460,10 +466,11 @@ The installer:
 1. **Detects your distro** and package manager
 2. **Checks all requirements** (Python, PipeWire, GPU, DKMS, kernel headers)
 3. **Installs missing packages** with the correct names for your distro
-4. **Asks about compositing** — CPU, GStreamer GL, or CuPy CUDA
-5. **Sets up virtual camera**, launcher scripts, desktop entry, systemd service
-6. **Verifies GPU acceleration** and writes initial config
-7. **Lets optional runtimes install later** inside the app without blocking the rest of the UI
+4. **Installs NVIDIA CUDA mode runtime packages** when an NVIDIA GPU is detected
+5. **Asks about compositing** — CPU, GStreamer GL, or CuPy CUDA
+6. **Sets up virtual camera**, launcher scripts, desktop entry, systemd service
+7. **Verifies GPU acceleration** and writes initial config
+8. **Lets optional runtimes install later** inside the app without blocking the rest of the UI
 
 ### Update Behavior
 
@@ -512,7 +519,10 @@ source .venv/bin/activate
 # 3. Install
 pip install -e .
 
-# 4. Optional: CuPy for GPU compositing
+# For NVIDIA GPU acceleration, install the CUDA extra instead:
+pip install -e ".[cuda]"
+
+# 4. Optional: CuPy-only retry for GPU compositing
 pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12
 
 # 5. Virtual camera
@@ -596,12 +606,17 @@ fuser -k /dev/video0
 <details>
 <summary><strong>No GPU acceleration (running on CPU)</strong></summary>
 
-Reinstall CUDA runtime libraries:
+From the source checkout, install the CUDA extra. This installs the ONNX Runtime GPU provider and CUDA runtime libraries used by the CUDA modes:
 ```bash
-.venv/bin/pip install --force-reinstall nvidia-cublas-cu12 nvidia-cuda-runtime-cu12 \
-    nvidia-cudnn-cu12 nvidia-curand-cu12 nvidia-cufft-cu12 nvidia-cusparse-cu12 \
-    nvidia-cusolver-cu12 nvidia-nvjitlink-cu12 nvidia-cuda-nvrtc-cu12
+.venv/bin/pip install --upgrade ".[cuda]"
 ```
+
+Verify that ONNX Runtime can see the GPU provider:
+```bash
+.venv/bin/python -c "import onnxruntime as ort; print(ort.get_available_providers())"
+```
+
+The output should include `CUDAExecutionProvider`. On Python `3.14+`, TensorRT may still be unavailable, but CUDA modes can run when the CUDA extra installs successfully.
 
 </details>
 

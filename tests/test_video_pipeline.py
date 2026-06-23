@@ -11,6 +11,61 @@ from nvbroadcast.video.pipeline import VideoPipeline
 
 
 class VideoPipelineRebuildTests(unittest.TestCase):
+    def _fake_gst_pipeline(self):
+        fake_pipeline = mock.Mock()
+        fake_sink = mock.Mock()
+        fake_bus = mock.Mock()
+        fake_pipeline.get_by_name.return_value = fake_sink
+        fake_pipeline.get_bus.return_value = fake_bus
+        return fake_pipeline
+
+    def test_effects_pipeline_uses_raw_source_without_jpeg_decode(self):
+        pipeline = VideoPipeline()
+        with mock.patch(
+            "nvbroadcast.video.virtual_camera.select_camera_capture_format",
+            return_value="raw",
+        ):
+            pipeline.configure(
+                "/dev/video1",
+                "/dev/video10",
+                width=640,
+                height=480,
+                fps=30,
+            )
+        pipeline._effects_active = True
+
+        fake_pipeline = self._fake_gst_pipeline()
+        with mock.patch("nvbroadcast.video.pipeline.Gst.parse_launch", return_value=fake_pipeline) as parse_launch:
+            pipeline.build(vcam_enabled=False)
+
+        pipeline_str = parse_launch.call_args.args[0]
+        self.assertIn("video/x-raw,width=640,height=480,framerate=30/1", pipeline_str)
+        self.assertNotIn("image/jpeg", pipeline_str)
+        self.assertNotIn("jpegdec", pipeline_str)
+
+    def test_effects_pipeline_keeps_mjpeg_decode_when_supported(self):
+        pipeline = VideoPipeline()
+        with mock.patch(
+            "nvbroadcast.video.virtual_camera.select_camera_capture_format",
+            return_value="mjpeg",
+        ):
+            pipeline.configure(
+                "/dev/video1",
+                "/dev/video10",
+                width=1280,
+                height=720,
+                fps=30,
+            )
+        pipeline._effects_active = True
+
+        fake_pipeline = self._fake_gst_pipeline()
+        with mock.patch("nvbroadcast.video.pipeline.Gst.parse_launch", return_value=fake_pipeline) as parse_launch:
+            pipeline.build(vcam_enabled=False)
+
+        pipeline_str = parse_launch.call_args.args[0]
+        self.assertIn("image/jpeg,width=1280,height=720,framerate=30/1", pipeline_str)
+        self.assertIn("jpegdec", pipeline_str)
+
     def test_set_effects_active_queues_only_one_rebuild(self):
         pipeline = VideoPipeline()
         pipeline._running = True

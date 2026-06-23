@@ -17,8 +17,8 @@ DEFAULT_HEIGHT = 720
 DEFAULT_FPS = 30
 
 import platform as _pf
-VIRTUAL_CAM_DEVICE = "/dev/video10" if _pf.system() != "Darwin" else "pyvirtualcam"
-VIRTUAL_CAM_LABEL = "NVIDIA Broadcast"
+VIRTUAL_CAM_LABEL = "NVbroadcast"
+VIRTUAL_CAM_DEVICE = "/dev/video10" if _pf.system() != "Darwin" else VIRTUAL_CAM_LABEL
 
 if _pf.system() == "Darwin":
     CONFIG_DIR = Path.home() / "Library" / "Application Support" / "nvbroadcast"

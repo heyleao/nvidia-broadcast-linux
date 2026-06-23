@@ -22,7 +22,7 @@ gi.require_version("Adw", "1")
 gi.require_version("Gst", "1.0")
 from gi.repository import Gtk, Adw, Gst, Gio, Gdk, GLib
 
-from nvbroadcast.core.constants import APP_ID, COMPUTE_GPU_INDEX
+from nvbroadcast.core.constants import APP_ID, COMPUTE_GPU_INDEX, VIRTUAL_CAM_LABEL
 from nvbroadcast.core.config import load_config, save_config
 from nvbroadcast.core.updates import (
     fetch_latest_release,
@@ -618,7 +618,7 @@ class NVBroadcastApp(Adw.Application):
             self._window.set_status(
                 "Virtual camera not available. Run: "
                 'sudo modprobe v4l2loopback devices=1 video_nr=10 '
-                'card_label="NVIDIA Broadcast" exclusive_caps=1 max_buffers=4')
+                f'card_label="{VIRTUAL_CAM_LABEL}" exclusive_caps=1 max_buffers=4')
 
         if normalized_quality:
             save_config(c)
@@ -762,10 +762,23 @@ class NVBroadcastApp(Adw.Application):
             return False
 
         from nvbroadcast.core.config import PERFORMANCE_PROFILES
+        from nvbroadcast.video.virtual_camera import resolve_camera_device
+
+        resolved_camera = resolve_camera_device(
+            camera_device or self.config.video.camera_device
+        )
+        if resolved_camera != camera_device:
+            print(
+                f"[NV Broadcast] Camera changed: {camera_device} -> {resolved_camera}",
+                flush=True,
+            )
+            camera_device = resolved_camera
+
         profile = PERFORMANCE_PROFILES.get(self.config.performance_profile, {})
         # Validate fps before building pipeline
         camera_fps = self._get_valid_fps(
-            self.config.video.width, self.config.video.height, self.config.video.fps
+            self.config.video.width, self.config.video.height, self.config.video.fps,
+            camera_device=camera_device,
         )
         if camera_fps != self.config.video.fps:
             self.config.video.fps = camera_fps
@@ -1609,14 +1622,22 @@ class NVBroadcastApp(Adw.Application):
         self._video_effects.update_edge_params(**{param: value})
         save_config(self.config)
 
-    def _get_valid_fps(self, width: int, height: int, desired_fps: int) -> int:
+    def _get_valid_fps(
+        self,
+        width: int,
+        height: int,
+        desired_fps: int,
+        camera_device: str | None = None,
+    ) -> int:
         """Return the closest supported FPS for the given resolution."""
         from nvbroadcast.video.virtual_camera import list_camera_modes
-        modes = list_camera_modes(self.config.video.camera_device)
+        modes = list_camera_modes(camera_device or self.config.video.camera_device)
         for mode in modes:
             if mode["width"] == width and mode["height"] == height:
                 supported = mode["fps"]
                 if desired_fps in supported:
+                    return desired_fps
+                if not supported:
                     return desired_fps
                 # Pick the closest supported fps
                 return min(supported, key=lambda f: abs(f - desired_fps))

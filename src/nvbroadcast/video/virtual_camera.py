@@ -3,7 +3,7 @@
 # Licensed under GPL-3.0 - see LICENSE file
 # Original author: doczeus | AI Powered
 #
-"""Virtual camera management — v4l2loopback (Linux) / pyvirtualcam (macOS)."""
+"""Virtual camera management — v4l2loopback (Linux) / CoreMediaIO (macOS)."""
 
 import subprocess
 import os
@@ -12,6 +12,36 @@ from pathlib import Path
 
 from nvbroadcast.core.constants import VIRTUAL_CAM_DEVICE, VIRTUAL_CAM_LABEL
 from nvbroadcast.core.platform import IS_LINUX, IS_MACOS
+
+_MJPEG_FORMATS = {"MJPG", "JPEG"}
+_RAW_FORMATS = {
+    "YUYV", "YUY2", "UYVY", "YVYU", "VYUY",
+    "NV12", "NV21", "YU12", "YV12", "I420",
+    "RGB3", "BGR3", "RGB4", "BGR4",
+}
+_VIRTUAL_CAMERA_MARKERS = (
+    "v4l2loopback",
+    "nvidia broadcast",
+    "nvbroadcast",
+    "obs virtual camera",
+)
+
+
+def _is_virtual_camera_name(value: str) -> bool:
+    lowered = value.lower()
+    return any(marker in lowered for marker in _VIRTUAL_CAMERA_MARKERS)
+
+
+def _is_mjpeg_format(fmt: str) -> bool:
+    return fmt.upper() in _MJPEG_FORMATS
+
+
+def _is_raw_format(fmt: str) -> bool:
+    return fmt.upper() in _RAW_FORMATS
+
+
+def _is_supported_camera_format(fmt: str) -> bool:
+    return _is_mjpeg_format(fmt) or _is_raw_format(fmt)
 
 
 def is_v4l2loopback_loaded() -> bool:
@@ -55,18 +85,10 @@ def ensure_virtual_camera() -> str:
     """Ensure a virtual camera device exists and return its path/identifier.
 
     Linux: v4l2loopback device at /dev/video10
-    macOS: pyvirtualcam (OBS Virtual Camera) — returns "pyvirtualcam" sentinel
+    macOS: proprietary CoreMediaIO extension — returns the branded device name
     """
     if IS_MACOS:
-        try:
-            import pyvirtualcam  # noqa: F401
-            return "pyvirtualcam"
-        except ImportError:
-            raise RuntimeError(
-                "Virtual camera requires pyvirtualcam + OBS on macOS.\n"
-                "Install: pip install pyvirtualcam\n"
-                "Also install OBS Studio: brew install --cask obs"
-            )
+        return VIRTUAL_CAM_LABEL
 
     device = get_virtual_camera_device()
     if device:
@@ -188,13 +210,63 @@ def reset_virtual_camera() -> bool:
         return False
 
 
-@lru_cache(maxsize=8)
-def list_camera_modes(device: str = "/dev/video0") -> list[dict]:
-    """Query camera supported resolutions and FPS in MJPEG mode.
+def _parse_v4l2_format_modes(output: str) -> list[dict]:
+    """Parse `v4l2-ctl --list-formats-ext` into supported camera modes."""
+    modes: dict[tuple[str, int, int], set[int]] = {}
+    current_format = ""
+    current_res: tuple[int, int] | None = None
 
-    Returns list of {"width": int, "height": int, "fps": [int, ...]} sorted by resolution.
-    """
-    modes = {}
+    for line in output.split("\n"):
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        if stripped.startswith("[") and "]: '" in stripped:
+            parts = stripped.split("'", 2)
+            current_format = parts[1].upper() if len(parts) > 1 else ""
+            current_res = None
+            continue
+
+        if not current_format or not _is_supported_camera_format(current_format):
+            continue
+
+        if stripped.startswith("Size: Discrete"):
+            try:
+                res = stripped.split("Discrete", 1)[1].strip()
+                width, height = res.split("x", 1)
+                current_res = (int(width), int(height))
+                modes.setdefault((current_format, *current_res), set())
+            except (IndexError, ValueError):
+                current_res = None
+            continue
+
+        if current_res and "fps" in stripped and "(" in stripped:
+            try:
+                fps_str = stripped.split("(", 1)[1].split(" fps", 1)[0]
+                modes[(current_format, *current_res)].add(int(float(fps_str)))
+            except (IndexError, ValueError):
+                continue
+
+    result = []
+    for (fmt, width, height), fps_list in sorted(
+        modes.items(), key=lambda item: item[0][1] * item[0][2]
+    ):
+        if fps_list:
+            result.append({
+                "format": fmt,
+                "width": width,
+                "height": height,
+                "fps": sorted(fps_list),
+            })
+    return result
+
+
+@lru_cache(maxsize=8)
+def list_camera_format_modes(device: str = "/dev/video0") -> list[dict]:
+    """Query camera supported resolutions, FPS, and input formats."""
+    if IS_MACOS:
+        return []
+
     try:
         result = subprocess.run(
             ["v4l2-ctl", "-d", device, "--list-formats-ext"],
@@ -203,33 +275,131 @@ def list_camera_modes(device: str = "/dev/video0") -> list[dict]:
         )
         if result.returncode != 0:
             return []
-        in_mjpg = False
-        current_res = None
-        for line in result.stdout.split("\n"):
-            stripped = line.strip()
-            if "'MJPG'" in stripped:
-                in_mjpg = True
-                continue
-            if in_mjpg and stripped.startswith("["):
-                in_mjpg = False
-                continue
-            if in_mjpg and stripped.startswith("Size: Discrete"):
-                res = stripped.split("Discrete")[1].strip()
-                w, h = res.split("x")
-                current_res = (int(w), int(h))
-                if current_res not in modes:
-                    modes[current_res] = []
-            if in_mjpg and current_res and "fps" in stripped:
-                # e.g. "Interval: Discrete 0.017s (60.000 fps)"
-                fps_str = stripped.split("(")[1].split(" fps")[0]
-                modes[current_res].append(int(float(fps_str)))
+        return _parse_v4l2_format_modes(result.stdout)
     except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
-        pass
+        return []
+
+
+@lru_cache(maxsize=8)
+def list_camera_modes(device: str = "/dev/video0") -> list[dict]:
+    """Query supported camera resolutions and FPS.
+
+    Returns list of {"width": int, "height": int, "fps": [int, ...]} sorted by resolution.
+    """
+    modes: dict[tuple[int, int], set[int]] = {}
+    for mode in list_camera_format_modes(device):
+        key = (mode["width"], mode["height"])
+        fps_set = modes.setdefault(key, set())
+        fps_set.update(mode["fps"])
 
     result = []
-    for (w, h), fps_list in sorted(modes.items(), key=lambda x: x[0][0] * x[0][1]):
-        result.append({"width": w, "height": h, "fps": sorted(set(fps_list))})
+    for (w, h), fps_set in sorted(modes.items(), key=lambda x: x[0][0] * x[0][1]):
+        result.append({"width": w, "height": h, "fps": sorted(fps_set)})
     return result
+
+
+def select_camera_capture_format(
+    device: str,
+    width: int,
+    height: int,
+    fps: int,
+) -> str:
+    """Return `mjpeg` or `raw` for the requested capture mode."""
+    if IS_MACOS:
+        return "raw"
+
+    format_modes = list_camera_format_modes(device)
+    if not format_modes:
+        # Preserve the previous default when the camera cannot be probed.
+        return "mjpeg"
+
+    matching_fps = [
+        mode for mode in format_modes
+        if mode["width"] == width and mode["height"] == height and fps in mode["fps"]
+    ]
+    if any(_is_mjpeg_format(mode["format"]) for mode in matching_fps):
+        return "mjpeg"
+    if any(_is_raw_format(mode["format"]) for mode in matching_fps):
+        return "raw"
+
+    matching_resolution = [
+        mode for mode in format_modes
+        if mode["width"] == width and mode["height"] == height
+    ]
+    if any(_is_mjpeg_format(mode["format"]) for mode in matching_resolution):
+        return "mjpeg"
+    if any(_is_raw_format(mode["format"]) for mode in matching_resolution):
+        return "raw"
+
+    if any(_is_mjpeg_format(mode["format"]) for mode in format_modes):
+        return "mjpeg"
+    if any(_is_raw_format(mode["format"]) for mode in format_modes):
+        return "raw"
+    return "mjpeg"
+
+
+@lru_cache(maxsize=32)
+def _get_v4l2_device_info(device: str) -> str:
+    try:
+        result = subprocess.run(
+            ["v4l2-ctl", "-D", "-d", device],
+            capture_output=True,
+            text=True,
+            timeout=2,
+        )
+        if result.returncode != 0:
+            return ""
+        return result.stdout
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        return ""
+
+
+def _device_caps_text(info: str) -> str:
+    marker = "Device Caps"
+    if marker not in info:
+        return info
+    return info.split(marker, 1)[1]
+
+
+def is_usable_camera_device(device: str, name: str = "") -> bool:
+    """Return whether a V4L2 node is a usable physical capture camera."""
+    if IS_MACOS:
+        return bool(device or name)
+    if not device.startswith("/dev/video"):
+        return False
+    if _is_virtual_camera_name(name):
+        return False
+
+    info = _get_v4l2_device_info(device)
+    has_capture_info = False
+    if info:
+        if _is_virtual_camera_name(info):
+            return False
+        caps = _device_caps_text(info)
+        if "Metadata Capture" in caps and "Video Capture" not in caps:
+            return False
+        if "Video Capture" not in caps:
+            return False
+        has_capture_info = True
+
+    # Prefer cameras with known modes, but do not hide a real capture node when
+    # a distro/kernel reports device info but refuses the formats query.
+    return bool(list_camera_modes(device)) or has_capture_info
+
+
+def resolve_camera_device(saved_device: str | None = None) -> str:
+    """Return the saved camera if valid, otherwise the first usable camera."""
+    if IS_MACOS:
+        return saved_device or ""
+
+    device = saved_device or ""
+    if device and is_usable_camera_device(device):
+        return device
+
+    cameras = list_camera_devices()
+    if cameras:
+        return cameras[0]["device"]
+    return device or "/dev/video0"
 
 
 def list_camera_devices() -> list[dict[str, str]]:
@@ -249,27 +419,37 @@ def list_camera_devices() -> list[dict[str, str]]:
             capture_output=True,
             text=True,
         )
+        if result.returncode != 0:
+            return []
         lines = result.stdout.split("\n")
         current_name = ""
         is_loopback = False
-        first_dev_in_group = True
+        group_devices: list[str] = []
+
+        def add_current_group():
+            if not current_name or is_loopback or _is_virtual_camera_name(current_name):
+                return
+            for dev in group_devices:
+                if is_usable_camera_device(dev, current_name):
+                    cameras.append({"name": current_name, "device": dev})
+                    break
+
         for line in lines:
             if line and not line.startswith("\t") and not line.startswith(" "):
+                add_current_group()
                 current_name = line.rstrip(":")
-                is_loopback = False
-                first_dev_in_group = True
+                is_loopback = _is_virtual_camera_name(current_name)
+                group_devices = []
             elif line.strip() and not line.strip().startswith("/dev/"):
                 # Continuation line (e.g. "  Broadcast (platform:v4l2loopback-010):")
                 cont = line.strip().rstrip(":")
-                if "v4l2loopback" in cont.lower():
+                if _is_virtual_camera_name(cont):
                     is_loopback = True
                 current_name = f"{current_name} {cont}".strip()
             elif line.strip().startswith("/dev/video"):
                 dev = line.strip()
-                # Skip v4l2loopback devices and take only first device per camera
-                if first_dev_in_group and not is_loopback and "nvidia broadcast" not in current_name.lower():
-                    cameras.append({"name": current_name, "device": dev})
-                first_dev_in_group = False
+                group_devices.append(dev)
+        add_current_group()
     except (subprocess.CalledProcessError, FileNotFoundError):
         pass
 

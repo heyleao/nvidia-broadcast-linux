@@ -23,9 +23,21 @@ import gi
 gi.require_version("Gst", "1.0")
 from gi.repository import Gst, GLib
 
-from nvbroadcast.core.constants import VIRTUAL_CAM_DEVICE, DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_FPS
+from nvbroadcast.core.constants import (
+    VIRTUAL_CAM_DEVICE,
+    VIRTUAL_CAM_LABEL,
+    DEFAULT_WIDTH,
+    DEFAULT_HEIGHT,
+    DEFAULT_FPS,
+)
 from nvbroadcast.core.config import load_config
-from nvbroadcast.video.virtual_camera import ensure_virtual_camera, list_camera_devices
+from nvbroadcast.core.platform import get_gst_camera_caps
+from nvbroadcast.video.virtual_camera import (
+    ensure_virtual_camera,
+    list_camera_devices,
+    resolve_camera_device,
+    select_camera_capture_format,
+)
 
 
 OUTPUT_FORMATS = {
@@ -51,13 +63,15 @@ def build_pipeline(
     """
     fmt = OUTPUT_FORMATS.get(output_format.lower(), "YUY2")
 
-    # Try MJPEG source first (most cameras use this for HD),
-    # fall back to raw if MJPEG isn't available
+    capture_format = select_camera_capture_format(source_device, width, height, fps)
+    camera_src = get_gst_camera_caps(
+        source_device, width, height, fps, capture_format=capture_format
+    )
+    decoder = "jpegdec ! videoconvert" if capture_format == "mjpeg" else "videoconvert"
+
     pipeline_str = (
-        f"v4l2src device={source_device} io-mode=2 do-timestamp=true ! "
-        f"image/jpeg,width={width},height={height},framerate={fps}/1 ! "
-        f"jpegdec ! "
-        f"videoconvert ! "
+        f"{camera_src} ! "
+        f"{decoder} ! "
         f"video/x-raw,format={fmt},width={width},height={height},framerate={fps}/1 ! "
         f"identity drop-allocation=true ! "
         f"v4l2sink device={vcam_device} io-mode=2 sync=false async=false"
@@ -71,12 +85,15 @@ def build_pipeline(
     except GLib.Error:
         pass
 
-    # Fallback: raw source (lower resolution may be needed)
-    print("[NVIDIA Broadcast VCam] MJPEG not available, trying raw source...")
+    alternate_format = "raw" if capture_format == "mjpeg" else "mjpeg"
+    camera_src = get_gst_camera_caps(
+        source_device, width, height, fps, capture_format=alternate_format
+    )
+    decoder = "jpegdec ! videoconvert" if alternate_format == "mjpeg" else "videoconvert"
+    print(f"[NVIDIA Broadcast VCam] Trying {alternate_format} source fallback...")
     pipeline_str = (
-        f"v4l2src device={source_device} io-mode=2 do-timestamp=true ! "
-        f"video/x-raw,width={width},height={height},framerate={fps}/1 ! "
-        f"videoconvert ! "
+        f"{camera_src} ! "
+        f"{decoder} ! "
         f"video/x-raw,format={fmt},width={width},height={height},framerate={fps}/1 ! "
         f"identity drop-allocation=true ! "
         f"v4l2sink device={vcam_device} io-mode=2 sync=false async=false"
@@ -106,7 +123,7 @@ def on_bus_message(bus, message, loop):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="NVIDIA Broadcast Virtual Camera Service - keeps virtual camera available for apps"
+        description=f"{VIRTUAL_CAM_LABEL} Virtual Camera Service - keeps virtual camera available for apps"
     )
     parser.add_argument(
         "--device", "-d",
@@ -141,7 +158,7 @@ def main():
 
     # Load config for defaults
     config = load_config()
-    source_device = args.device or config.video.camera_device
+    source_device = resolve_camera_device(args.device or config.video.camera_device)
     width = args.width or config.video.width
     height = args.height or config.video.height
     fps = args.fps or config.video.fps
@@ -192,7 +209,7 @@ def main():
         sys.exit(1)
 
     print("[NVIDIA Broadcast VCam] Streaming... (Ctrl+C to stop)")
-    print("[NVIDIA Broadcast VCam] Open your browser or video app and select 'NVIDIA Broadcast Virtual Camera'")
+    print(f"[NVIDIA Broadcast VCam] Open your browser or video app and select '{VIRTUAL_CAM_LABEL}'")
 
     try:
         loop.run()

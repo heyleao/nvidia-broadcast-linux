@@ -1,5 +1,5 @@
 Name:           nvbroadcast
-Version:        1.1.10
+Version:        1.1.11
 Release:        1%{?dist}
 Summary:        NV Broadcast - Unofficial NVIDIA Broadcast for Linux
 License:        GPL-3.0-or-later
@@ -89,7 +89,7 @@ chmod 755 %{buildroot}%{_bindir}/nvbroadcast-vcam
 install -d %{buildroot}%{_userunitdir}
 cat > %{buildroot}%{_userunitdir}/nvbroadcast-vcam.service << 'EOF'
 [Unit]
-Description=NV Broadcast Virtual Camera Service
+Description=NVbroadcast Virtual Camera Service
 After=graphical-session.target
 
 [Service]
@@ -104,7 +104,7 @@ EOF
 
 # v4l2loopback config
 install -d %{buildroot}/etc/modprobe.d
-echo 'options v4l2loopback devices=1 video_nr=10 card_label="NV Broadcast" exclusive_caps=1 max_buffers=4' \
+echo 'options v4l2loopback devices=1 video_nr=10 card_label="NVbroadcast" exclusive_caps=1 max_buffers=4' \
     > %{buildroot}/etc/modprobe.d/nvbroadcast-v4l2loopback.conf
 install -d %{buildroot}/etc/modules-load.d
 echo 'v4l2loopback' > %{buildroot}/etc/modules-load.d/nvbroadcast-v4l2loopback.conf
@@ -125,7 +125,12 @@ if command -v nvidia-smi &>/dev/null; then
 fi
 
 # Load v4l2loopback
-modprobe v4l2loopback devices=1 video_nr=10 card_label="NV Broadcast" exclusive_caps=1 max_buffers=4 2>/dev/null || true
+if [ -f /etc/modprobe.d/nvbroadcast-v4l2loopback.conf ] && \
+   grep -Eq 'card_label="(NVIDIA Broadcast|NVIDIA Broadcast Virtual Camera|NV Broadcast)"' /etc/modprobe.d/nvbroadcast-v4l2loopback.conf; then
+    echo 'options v4l2loopback devices=1 video_nr=10 card_label="NVbroadcast" exclusive_caps=1 max_buffers=4' \
+        > /etc/modprobe.d/nvbroadcast-v4l2loopback.conf
+fi
+modprobe v4l2loopback devices=1 video_nr=10 card_label="NVbroadcast" exclusive_caps=1 max_buffers=4 2>/dev/null || true
 
 %preun
 pkill -f "nvbroadcast" 2>/dev/null || true
@@ -144,6 +149,15 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 %doc README.md
 
 %changelog
+* Tue Jun 23 2026 doczeus <harshit@kshoonya.com> - 1.1.11-1
+- Fix OBS and meeting-app white preview cases on cameras that expose raw video modes instead of MJPEG
+- Avoid stale, metadata-only, and virtual-loopback camera nodes after reboot or device-order changes
+- Apply the same camera compatibility path to the headless virtual camera command
+- Fix CUDA runtime package paths for source, Debian, RPM, and amd64 Snap installs
+- Keep DocZeus, Zeus, and Killer as the named premium processing modes
+- Improve manual Snap release recovery and Snap Store validation
+- Add regression coverage for camera-mode fallback, camera-node filtering, headless virtual camera behavior, and package metadata
+
 * Fri Jun 19 2026 doczeus <harshit@kshoonya.com> - 1.1.10-1
 - Improve live background replace edge stability around hair, shoulders, hands, and fingers
 - Apply replace-mode fringe cleanup in the fused CUDA compositing path and reduce CPU cleanup cost

@@ -42,6 +42,18 @@ I built this because I believe Linux users deserve the same broadcast-quality ex
 
 ## What's New
 
+### v1.1.11 — OBS Camera Compatibility and Packaging Reliability Patch
+
+- **OBS White Preview Fixed** — The camera pipeline now handles cameras that expose raw video modes instead of MJPEG for the selected resolution
+- **Safer Camera Auto-Detection** — Startup now avoids stale, metadata-only, and virtual-loopback camera nodes after reboot, reducing blank preview and “no effects” cases
+- **Headless Virtual Camera Fixed Too** — `nvbroadcast-vcam` uses the same camera compatibility path as the main app, so OBS-only workflows get the same fix
+- **CUDA Runtime Packaging Fixed** — Source, Debian, RPM, and amd64 Snap installs now use the correct package paths for the CUDA mode runtime
+- **DocZeus, Zeus, and Killer Preserved** — The named premium processing modes remain unchanged; this patch focuses on camera compatibility and packaging reliability
+- **Snap Release Recovery Improved** — Manual Snap publishing can recover cleanly from an existing GitHub release tag, and the Snap Store validation command uses the current Snapcraft flow
+- **Regression Tests Added** — Release checks now cover raw-camera fallback, camera-node filtering, headless virtual camera behavior, and package metadata consistency
+
+> If you are still on `v1.1.10` or older, update to `v1.1.11`. This is the recommended stable patch for OBS camera compatibility and package install reliability.
+
 ### v1.1.10 — Live Edge Quality and Compute Control Update
 
 - **Cleaner Live Background Edges** — Background replace is steadier around hair, shoulders, raised hands, and finger gaps during motion
@@ -412,7 +424,7 @@ When Edge Refine is toggled ON (Zeus/Killer modes):
 | **GPU** | NVIDIA GTX 1060 | RTX 3060 or newer |
 | **VRAM** | 2 GB | 4 GB+ |
 | **CPU** | 4 cores | 8+ cores (if using CPU compositing) |
-| **Webcam** | Any USB camera | 720p+ with MJPEG |
+| **Webcam** | Any USB camera | 720p+ with MJPEG or raw V4L2 modes |
 | **Mic** | Any audio input | — |
 
 ### Software
@@ -527,7 +539,7 @@ pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12
 
 # 5. Virtual camera
 sudo modprobe v4l2loopback devices=1 video_nr=10 \
-    card_label="NVIDIA Broadcast" exclusive_caps=1 max_buffers=4
+    card_label="NVbroadcast" exclusive_caps=1 max_buffers=4
 
 # 6. Run
 python -m nvbroadcast
@@ -549,7 +561,7 @@ nvbroadcast          # Launch GUI (first time: setup wizard)
 2. App starts and auto-begins streaming
 3. Configure effects, select resolution/FPS/mode
 4. **Close the window** — app minimizes to background, virtual camera stays active
-5. Open **Chrome / Zoom / Discord / OBS** — select **"NVIDIA Broadcast"** as your camera
+5. Open **Chrome / Zoom / Discord / OBS** — select **"NVbroadcast"** as your camera
 6. **Next login** — app starts automatically with all your settings remembered
 
 ### Controls
@@ -639,7 +651,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.1.10)
+│   ├── __init__.py              # Package version (1.1.11)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -672,7 +684,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v1.1.10)
+├── pyproject.toml               # Package config (v1.1.11)
 └── README.md
 ```
 

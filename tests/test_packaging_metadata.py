@@ -6,6 +6,28 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackagingMetadataTests(unittest.TestCase):
+    def test_release_version_metadata_is_current(self):
+        current = "1.1.11"
+        pyproject = (REPO_ROOT / "pyproject.toml").read_text()
+        package_init = (REPO_ROOT / "src" / "nvbroadcast" / "__init__.py").read_text()
+        readme = (REPO_ROOT / "README.md").read_text()
+        metainfo = (REPO_ROOT / "data" / "com.doczeus.NVBroadcast.metainfo.xml").read_text()
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        rpm_spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        docs_index = (REPO_ROOT / "docs" / "index.html").read_text()
+        snap_workflow = (REPO_ROOT / ".github" / "workflows" / "snap.yml").read_text()
+
+        self.assertIn(f'version = "{current}"', pyproject)
+        self.assertIn(f'__version__ = "{current}"', package_init)
+        self.assertIn(f"version: '{current}'", snapcraft)
+        self.assertIn(f"Version:        {current}", rpm_spec)
+        self.assertIn(f'<release version="{current}" date="2026-06-23">', metainfo)
+        self.assertIn(f"### v{current}", readme)
+        self.assertIn(f"nvbroadcast_{current}-1_all.deb", docs_index)
+        self.assertIn(f"nvbroadcast-{current}-1.noarch.rpm", docs_index)
+        self.assertIn(f"NVBroadcast-{current}-1.pkg", docs_index)
+        self.assertIn(f"such as v{current}", snap_workflow)
+
     def test_install_script_uses_supported_tensorrt_command(self):
         install_script = (REPO_ROOT / "install.sh").read_text()
         self.assertIn("pip install tensorrt-cu12", install_script)
@@ -52,6 +74,73 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn('pip" install --upgrade "$INSTALL_DIR[cuda]"', deb_postinst)
         self.assertIn('pip install --upgrade "/opt/nvbroadcast[cuda]"', rpm_postinst)
         self.assertNotIn("pip\" install cupy-cuda12x nvidia-cuda-nvrtc-cu12", deb_postinst)
+
+    def test_virtual_camera_label_is_nvbroadcast_everywhere(self):
+        constants = (REPO_ROOT / "src" / "nvbroadcast" / "core" / "constants.py").read_text()
+        readme = (REPO_ROOT / "README.md").read_text()
+        install_script = (REPO_ROOT / "install.sh").read_text()
+        config_template = (REPO_ROOT / "configs" / "v4l2loopback" / "nvbroadcast.conf").read_text()
+        build_packages = (REPO_ROOT / "build-packages.sh").read_text()
+        setup_script = (REPO_ROOT / "scripts" / "setup_v4l2loopback.sh").read_text()
+        deb_postinst = (REPO_ROOT / "packaging" / "debian" / "postinst").read_text()
+        deb_rules = (REPO_ROOT / "packaging" / "debian" / "rules").read_text()
+        rpm_spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        macos_constants = (REPO_ROOT / "macos" / "Shared" / "Constants.swift").read_text()
+
+        self.assertIn('VIRTUAL_CAM_LABEL = "NVbroadcast"', constants)
+        self.assertIn('else VIRTUAL_CAM_LABEL', constants)
+        self.assertIn('card_label="NVbroadcast"', readme)
+        self.assertIn('select **"NVbroadcast"** as your camera', readme)
+        self.assertIn('card_label="NVbroadcast"', install_script)
+        self.assertIn("Description=NVbroadcast Virtual Camera Service", install_script)
+        self.assertIn('card_label="NVbroadcast"', config_template)
+        self.assertIn("Description=NVbroadcast Virtual Camera Service", build_packages)
+        self.assertIn('LABEL="NVbroadcast"', setup_script)
+        self.assertIn('card_label="NVbroadcast"', deb_postinst)
+        self.assertIn("Description=NVbroadcast Virtual Camera Service", deb_rules)
+        self.assertIn('card_label="NVbroadcast"', rpm_spec)
+        self.assertIn("Description=NVbroadcast Virtual Camera Service", rpm_spec)
+        self.assertIn('static let deviceName = "NVbroadcast"', macos_constants)
+        self.assertIn('static let deviceModel = "NVbroadcast"', macos_constants)
+        self.assertIn("NVBROADCAST_ALLOW_OBS_VCAM_FALLBACK", (REPO_ROOT / "src" / "nvbroadcast" / "video" / "pipeline.py").read_text())
+
+        generated_content = "\n".join(
+            line
+            for line in (
+                install_script
+                + config_template
+                + build_packages
+                + setup_script
+                + deb_postinst
+                + deb_rules
+                + rpm_spec
+                + macos_constants
+            ).splitlines()
+            if "grep -Eq" not in line
+        )
+        self.assertNotIn('card_label="NVIDIA Broadcast"', generated_content)
+        self.assertNotIn('card_label="NVIDIA Broadcast Virtual Camera"', generated_content)
+        self.assertNotIn('card_label="NV Broadcast"', generated_content)
+        self.assertNotIn("Description=NVIDIA Broadcast Virtual Camera Service", generated_content)
+        self.assertNotIn("Description=NV Broadcast Virtual Camera Service", generated_content)
+        self.assertNotIn('deviceName = "NV Broadcast"', generated_content)
+        self.assertNotIn('deviceModel = "NV Broadcast Virtual Camera"', generated_content)
+
+    def test_release_copy_preserves_proprietary_mode_names(self):
+        readme = (REPO_ROOT / "README.md").read_text()
+        snapcraft = (REPO_ROOT / "snap" / "snapcraft.yaml").read_text()
+        metainfo = (REPO_ROOT / "data" / "com.doczeus.NVBroadcast.metainfo.xml").read_text()
+        rpm_spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        website = (REPO_ROOT / "docs" / "index.html").read_text()
+        ui_window = (REPO_ROOT / "src" / "nvbroadcast" / "ui" / "window.py").read_text()
+
+        for name in ("DocZeus", "Zeus", "Killer"):
+            self.assertIn(name, readme)
+            self.assertIn(name, snapcraft)
+            self.assertIn(name, metainfo)
+            self.assertIn(name, rpm_spec)
+            self.assertIn(name, website)
+            self.assertIn(name, ui_window)
 
     def test_debian_postinst_installs_meeting_runtime(self):
         postinst = (REPO_ROOT / "packaging" / "debian" / "postinst").read_text()

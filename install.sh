@@ -372,13 +372,14 @@ echo "[2/7] Configuring virtual camera (v4l2loopback)..."
 
 V4L2_CONF="/etc/modprobe.d/nvbroadcast-v4l2loopback.conf"
 V4L2_LOAD="/etc/modules-load.d/nvbroadcast-v4l2loopback.conf"
+V4L2_OPTIONS='options v4l2loopback devices=1 video_nr=10 card_label="NVbroadcast" exclusive_caps=1 max_buffers=4'
 
 # Remove old BluCast configs if present
 sudo rm -f /etc/modprobe.d/blucast-v4l2loopback.conf 2>/dev/null || true
 sudo rm -f /etc/modules-load.d/blucast-v4l2loopback.conf 2>/dev/null || true
 
-if [ ! -f "$V4L2_CONF" ]; then
-    if echo 'options v4l2loopback devices=1 video_nr=10 card_label="NVIDIA Broadcast" exclusive_caps=1 max_buffers=4' | sudo tee "$V4L2_CONF" > /dev/null; then
+if [ ! -f "$V4L2_CONF" ] || grep -Eq 'card_label="(NVIDIA Broadcast|NVIDIA Broadcast Virtual Camera|NV Broadcast)"' "$V4L2_CONF"; then
+    if echo "$V4L2_OPTIONS" | sudo tee "$V4L2_CONF" > /dev/null; then
         echo "Created $V4L2_CONF"
     else
         echo "WARNING: Could not create $V4L2_CONF (sudo failed). Virtual camera may not auto-load."
@@ -394,10 +395,11 @@ if [ ! -f "$V4L2_LOAD" ]; then
 fi
 
 if ! lsmod | grep -q v4l2loopback; then
-    sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="NVIDIA Broadcast" exclusive_caps=1 max_buffers=4 2>/dev/null || \
+    sudo modprobe v4l2loopback devices=1 video_nr=10 card_label="NVbroadcast" exclusive_caps=1 max_buffers=4 2>/dev/null || \
         echo "WARNING: Could not load v4l2loopback. You may need to reboot or install kernel headers."
 else
     echo "v4l2loopback already loaded"
+    echo "If the visible camera name is old, reboot or reload v4l2loopback when the camera is not in use."
 fi
 
 if [ -e /dev/video10 ]; then
@@ -760,7 +762,7 @@ fi
 
 cat > "$SYSTEMD_DIR/nvbroadcast-vcam.service" << EOF
 [Unit]
-Description=NVIDIA Broadcast Virtual Camera Service
+Description=NVbroadcast Virtual Camera Service
 After=graphical-session.target
 
 [Service]

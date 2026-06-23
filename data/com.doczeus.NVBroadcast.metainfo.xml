@@ -62,6 +62,20 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.1.11" date="2026-06-23">
+      <description>
+        <p>OBS camera compatibility and packaging reliability patch</p>
+        <ul>
+          <li>Fixed white preview and missing-effects cases on cameras that expose raw video modes instead of MJPEG for the selected resolution</li>
+          <li>Avoided stale, metadata-only, and virtual-loopback camera nodes during startup after device order changes</li>
+          <li>Updated the headless virtual camera command to use the same camera compatibility path as the main app</li>
+          <li>Fixed CUDA runtime package paths for source, Debian, RPM, and amd64 Snap installs</li>
+          <li>Kept DocZeus, Zeus, and Killer as the named premium processing modes while improving camera compatibility and package reliability</li>
+          <li>Improved Snap release recovery and Snap Store validation for manual publishing</li>
+          <li>Added regression tests for raw-camera fallback, camera-node filtering, headless virtual camera behavior, and package metadata consistency</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.10" date="2026-06-19">
       <description>
         <p>Live edge quality, compute control, and sponsor visibility update</p>

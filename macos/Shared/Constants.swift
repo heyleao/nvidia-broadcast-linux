@@ -7,8 +7,8 @@ import Foundation
 enum NVBroadcastConstants {
     static let extensionBundleID = "com.doczeus.nvbroadcast.camera"
     static let appGroupID = "group.com.doczeus.nvbroadcast"
-    static let deviceName = "NV Broadcast"
-    static let deviceModel = "NV Broadcast Virtual Camera"
+    static let deviceName = "NVbroadcast"
+    static let deviceModel = "NVbroadcast"
     static let manufacturer = "Doczeus"
 
     // Shared memory / IPC

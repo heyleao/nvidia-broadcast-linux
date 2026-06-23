@@ -24,6 +24,20 @@ class AutoCaptureTuningTests(unittest.TestCase):
         with mock.patch("nvbroadcast.video.virtual_camera.list_camera_modes", return_value=modes):
             self.assertEqual(app._next_lower_capture_mode(), (800, 600, 30))
 
+    def test_get_valid_fps_uses_start_camera_device_override(self):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.video.camera_device = "/dev/video0"
+
+        modes = [{"width": 1280, "height": 720, "fps": [24]}]
+        with mock.patch("nvbroadcast.video.virtual_camera.list_camera_modes", return_value=modes) as list_modes:
+            self.assertEqual(
+                app._get_valid_fps(1280, 720, 30, camera_device="/dev/video2"),
+                24,
+            )
+
+        list_modes.assert_called_once_with("/dev/video2")
+
     def test_quality_profile_keeps_inline_alpha_even_for_heavy_face_stack(self):
         app = NVBroadcastApp.__new__(NVBroadcastApp)
         app.config = AppConfig()

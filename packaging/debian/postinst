@@ -29,9 +29,10 @@ fi
 # Setup v4l2loopback
 V4L2_CONF="/etc/modprobe.d/nvbroadcast-v4l2loopback.conf"
 V4L2_LOAD="/etc/modules-load.d/nvbroadcast-v4l2loopback.conf"
+V4L2_OPTIONS='options v4l2loopback devices=1 video_nr=10 card_label="NVbroadcast" exclusive_caps=1 max_buffers=4'
 
-if [ ! -f "$V4L2_CONF" ]; then
-    echo 'options v4l2loopback devices=1 video_nr=10 card_label="NV Broadcast" exclusive_caps=1 max_buffers=4' > "$V4L2_CONF"
+if [ ! -f "$V4L2_CONF" ] || grep -Eq 'card_label="(NVIDIA Broadcast|NVIDIA Broadcast Virtual Camera|NV Broadcast)"' "$V4L2_CONF"; then
+    echo "$V4L2_OPTIONS" > "$V4L2_CONF"
 fi
 
 if [ ! -f "$V4L2_LOAD" ]; then
@@ -39,7 +40,7 @@ if [ ! -f "$V4L2_LOAD" ]; then
 fi
 
 # Load v4l2loopback
-modprobe v4l2loopback devices=1 video_nr=10 card_label="NV Broadcast" exclusive_caps=1 max_buffers=4 2>/dev/null || true
+modprobe v4l2loopback devices=1 video_nr=10 card_label="NVbroadcast" exclusive_caps=1 max_buffers=4 2>/dev/null || true
 
 # Update desktop database
 if command -v update-desktop-database &>/dev/null; then

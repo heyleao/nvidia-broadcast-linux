@@ -791,7 +791,10 @@ class HeadlessControlWindow(Gtk.ApplicationWindow):
             self._toast(f"Falha ao abrir update: {exc}")
 
     def _on_close_request(self, _window):
-        self._quit_and_stop_services()
+        self._level_meter.stop()
+        app = self.get_application()
+        if app is not None:
+            app.quit()
         return True
 
     def _on_minimize(self, _button):

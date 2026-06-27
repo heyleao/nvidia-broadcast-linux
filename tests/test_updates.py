@@ -4,6 +4,7 @@ from unittest import mock
 
 from nvbroadcast.core.config import AppConfig
 from nvbroadcast.core.updates import (
+    _tag_commit_from_ls_remote,
     find_release_asset,
     is_newer_version,
     release_info_from_payload,
@@ -44,6 +45,23 @@ class UpdateTests(unittest.TestCase):
         self.assertEqual(release.tag_name, "v1.0.2")
         self.assertIn("/releases/tag/v1.0.2", release.html_url)
         self.assertEqual(find_release_asset(release, ".pkg").name, "NVBroadcast-1.0.2-1.pkg")
+
+    def test_tag_commit_prefers_peeled_annotated_tag_sha(self):
+        output = (
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\trefs/tags/v1.0.0\n"
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\trefs/tags/v1.0.0^{}\n"
+        )
+        self.assertEqual(
+            _tag_commit_from_ls_remote(output, "v1.0.0"),
+            "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        )
+
+    def test_tag_commit_accepts_lightweight_tag_sha(self):
+        output = "cccccccccccccccccccccccccccccccccccccccc\trefs/tags/v1.0.1\n"
+        self.assertEqual(
+            _tag_commit_from_ls_remote(output, "v1.0.1"),
+            "cccccccccccccccccccccccccccccccccccccccc",
+        )
 
     def test_resolve_update_target_prefers_snap_store_inside_snap(self):
         release = release_info_from_payload({

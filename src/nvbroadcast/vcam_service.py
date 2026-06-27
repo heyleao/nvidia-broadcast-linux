@@ -99,12 +99,12 @@ def build_pipeline(
         return Gst.parse_launch(pipeline_str)
 
 MODE_MAP = {
-    "doczeus": ("max_quality", "cupy", False, True, False),
+    "doczeus": ("max_quality", "cupy", True, False, False),
     "cuda_max": ("max_quality", "cupy", False, False, False),
     "cuda_balanced": ("balanced", "cupy", False, False, False),
+    "cuda_perf": ("performance", "cupy", False, True, False),
     "zeus": ("balanced", "cupy", True, False, False),
     "killer": ("performance", "cupy", True, True, True),
-    "cuda_perf": ("performance", "cupy", False, True, False),
     "cpu_quality": ("max_quality", "cpu", False, False, False),
     "cpu_light": ("performance", "cpu", False, False, False),
     "cpu_low": ("potato", "cpu", False, False, False),
@@ -114,13 +114,16 @@ MODE_QUALITY_PRESETS = {
     "doczeus": "quality",
     "cuda_max": "quality",
     "cuda_balanced": "balanced",
+    "cuda_perf": "performance",
     "zeus": "balanced",
     "killer": "performance",
-    "cuda_perf": "performance",
     "cpu_quality": "quality",
     "cpu_light": "performance",
     "cpu_low": "performance",
 }
+
+TENSORRT_MODES = {"doczeus", "zeus", "killer"}
+CUDA_MODES = {"doczeus", "cuda_max", "cuda_balanced", "cuda_perf", *TENSORRT_MODES}
 
 
 class HeadlessEffectsCamera:
@@ -193,7 +196,7 @@ class HeadlessEffectsCamera:
         effects._skip_interval = profile.get("skip_interval", 1)
         effects._apply_edge_config(self.config.video.edge)
         effects._edge_refine_enabled = (
-            bool(self.config.premium_edge_refine) and mode_key in ("killer", "zeus")
+            bool(self.config.premium_edge_refine) and mode_key in TENSORRT_MODES
         )
 
         effects.mode = self.config.video.background_mode

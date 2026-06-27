@@ -995,12 +995,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     # (profile, compositing, use_tensorrt, use_fused_kernel, use_nvdec)
     _MODE_MAP = {
-        "doczeus":      ("max_quality", "cupy", False, True,  False),
+        "doczeus":      ("max_quality", "cupy", True,  False, False),
         "cuda_max":     ("max_quality", "cupy", False, False, False),
         "cuda_balanced": ("balanced",   "cupy", False, False, False),
+        "cuda_perf":    ("performance", "cupy", False, True,  False),
         "zeus":         ("balanced",    "cupy", True,  False, False),
         "killer":       ("performance", "cupy", True,  True,  True),
-        "cuda_perf":    ("performance", "cupy", False, True,  False),
         "cpu_quality":  ("max_quality", "cpu",  False, False, False),
         "cpu_light":    ("performance", "cpu",  False, False, False),
         "cpu_low":      ("potato",      "cpu",  False, False, False),
@@ -1010,12 +1010,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     def _mode_status_message(mode_key: str) -> str:
         messages = {
             "auto": "Auto: adapt to the current device and step down when live FPS stays low",
-            "doczeus": "DocZeus: best GPU quality for background replacement",
+            "doczeus": "DocZeus: max quality TensorRT inference",
             "cuda_max": "CUDA High Quality: strong quality without fused compositing",
             "cuda_balanced": "CUDA Balanced: good quality with lighter GPU load",
-            "zeus": "Zeus: fast GPU mode with TensorRT and edge refine",
-            "killer": "Killer: fastest GPU mode, softer edges under motion",
             "cuda_perf": "CUDA Fast: fused compositor with fresher 480p replace matting",
+            "zeus": "Zeus: TensorRT balanced mode with edge refine",
+            "killer": "Killer: TensorRT performance mode, softer edges under motion",
             "cpu_quality": "CPU High Quality: most compatible, highest CPU cost",
             "cpu_light": "CPU Fast: reduced CPU cost with lower quality",
             "cpu_low": "CPU Low End: fallback mode for weaker systems",
@@ -1031,12 +1031,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
         devices: list[dict[str, str]] = []
         devices.append({"name": "Auto - Adaptive", "device": "auto"})
         for mode_key, label in [
-            ("doczeus", "DocZeus - Best Quality GPU"),
             ("cuda_max", "CUDA - High Quality"),
             ("cuda_balanced", "CUDA - Balanced"),
-            ("zeus", "Zeus - Fast GPU Mode"),
-            ("killer", "Killer - Fastest GPU Mode"),
             ("cuda_perf", "CUDA - Fast"),
+            ("doczeus", "DocZeus - TensorRT Max Quality"),
+            ("zeus", "TensorRT - Zeus Balanced"),
+            ("killer", "TensorRT - Killer Fast"),
             ("cpu_quality", "CPU - High Quality"),
             ("cpu_light", "CPU - Fast"),
             ("cpu_low", "CPU - Low End"),
@@ -1044,7 +1044,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             unsupported = self._app.dependency_installer.unsupported_reason_for_mode(mode_key)
             missing = self._app.dependency_installer.missing_for_mode(mode_key)
             if unsupported:
-                if mode_key in ("zeus", "killer") and not has_trt and not supports_tensorrt_python():
+                if mode_key in ("doczeus", "zeus", "killer") and not has_trt and not supports_tensorrt_python():
                     label += " (requires Python 3.8-3.13)"
                 else:
                     label += " (not available on this system)"
@@ -1052,7 +1052,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
                 continue
             if not has_cuda and mode_key.startswith(("doczeus", "cuda_", "zeus", "killer")):
                 missing = sorted(set(missing + ["cupy"]))
-            if mode_key in ("zeus", "killer") and not has_trt:
+            if mode_key in ("doczeus", "zeus", "killer") and not has_trt:
                 missing = sorted(set(missing + ["tensorrt"]))
             if missing:
                 readable = ", ".join(

@@ -10,8 +10,10 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 
 import gi
+import psutil
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
@@ -22,6 +24,16 @@ from nvbroadcast.audio.devices import list_microphones, list_speakers
 from nvbroadcast.audio.voice_fx import VOICE_PRESETS, get_voice_fx_preset
 from nvbroadcast.core.config import apply_performance_profile, load_config, save_config
 from nvbroadcast.core.constants import APP_ID
+from nvbroadcast.core.updates import (
+    HEADLESS_FORK_RELEASE_URL,
+    SourceUpdateResult,
+    VerifiedSourceUpdate,
+    apply_verified_source_update,
+    fetch_latest_release,
+    is_newer_version,
+    prepare_verified_source_update,
+)
+from nvbroadcast import __version__
 from nvbroadcast.vcam_service import MODE_MAP
 
 
@@ -29,18 +41,16 @@ APP_CONTROL_ID = f"{APP_ID}.HeadlessControl"
 VCAM_SERVICE = "nvbroadcast-vcam.service"
 AUDIO_SERVICE = "nvbroadcast-audio.service"
 VIRTUAL_MIC_SOURCE = "nvbroadcast_mic"
-FORK_RELEASES_URL = "https://github.com/heyleao/nvidia-broadcast-linux/releases/latest"
-
 MODE_LABELS = {
-    "doczeus": "DocZeus - qualidade maxima",
-    "cuda_max": "CUDA Max - qualidade",
-    "cuda_balanced": "CUDA Balanced - recomendado",
-    "zeus": "Zeus - TensorRT balanceado",
-    "killer": "Killer - max performance",
-    "cuda_perf": "CUDA Performance",
-    "cpu_quality": "CPU Quality",
-    "cpu_light": "CPU Light",
-    "cpu_low": "CPU Low",
+    "cpu_quality": "CPU - qualidade",
+    "cpu_light": "CPU - performance",
+    "cpu_low": "CPU - leve",
+    "cuda_max": "CUDA - qualidade",
+    "cuda_balanced": "CUDA - balanceado",
+    "cuda_perf": "CUDA - performance",
+    "doczeus": "DocZeus - TensorRT qualidade maxima",
+    "zeus": "TensorRT - Zeus balanceado",
+    "killer": "TensorRT - Killer performance",
 }
 
 
@@ -64,6 +74,17 @@ def _systemctl(args: list[str]) -> subprocess.CompletedProcess[str]:
 
 def _active(service: str) -> bool:
     return _systemctl(["is-active", "--quiet", service]).returncode == 0
+
+
+def _service_main_pid(service: str) -> int | None:
+    result = _systemctl(["show", service, "--property=MainPID", "--value"])
+    if result.returncode != 0:
+        return None
+    try:
+        pid = int(result.stdout.strip() or "0")
+    except ValueError:
+        return None
+    return pid if pid > 0 else None
 
 
 def _pactl(args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -305,6 +326,111 @@ class AudioLevelMeter(Gtk.Box):
         return (db_value + 60.0) / 60.0
 
 
+class ResourceUsageMeter(Gtk.Box):
+    def __init__(self):
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self._last_cpu_total: float | None = None
+        self._last_time: float | None = None
+
+        self._summary = Gtk.Label(label="CPU --  |  MEM --  |  GPU --")
+        self._summary.set_halign(Gtk.Align.START)
+        self._summary.add_css_class("caption")
+        self.append(self._summary)
+
+    def update(self) -> None:
+        processes = self._service_processes()
+        cpu = self._cpu_percent(processes)
+        mem_mb = sum(self._safe_rss(process) for process in processes) / (1024 * 1024)
+        gpu_text = self._gpu_text(processes)
+        self._summary.set_label(f"CPU {cpu:.0f}%  |  MEM {mem_mb:.0f} MB  |  {gpu_text}")
+
+    def _service_processes(self) -> list[psutil.Process]:
+        found: dict[int, psutil.Process] = {}
+        for service in (VCAM_SERVICE, AUDIO_SERVICE):
+            pid = _service_main_pid(service)
+            if pid is None:
+                continue
+            try:
+                process = psutil.Process(pid)
+                found[process.pid] = process
+                for child in process.children(recursive=True):
+                    found[child.pid] = child
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+        return list(found.values())
+
+    def _cpu_percent(self, processes: list[psutil.Process]) -> float:
+        now = time.monotonic()
+        total = 0.0
+        for process in processes:
+            try:
+                times = process.cpu_times()
+                total += times.user + times.system
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+
+        if self._last_cpu_total is None or self._last_time is None:
+            self._last_cpu_total = total
+            self._last_time = now
+            return 0.0
+
+        elapsed = max(0.001, now - self._last_time)
+        cpu_count = max(1, psutil.cpu_count() or 1)
+        percent = max(0.0, (total - self._last_cpu_total) / elapsed * 100.0 / cpu_count)
+        self._last_cpu_total = total
+        self._last_time = now
+        return min(100.0, percent)
+
+    @staticmethod
+    def _safe_rss(process: psutil.Process) -> int:
+        try:
+            return int(process.memory_info().rss)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return 0
+
+    def _gpu_text(self, processes: list[psutil.Process]) -> str:
+        pids = {process.pid for process in processes}
+        if not pids:
+            return "GPU 0%  |  VRAM 0 MB"
+        try:
+            result = subprocess.run(
+                ["nvidia-smi", "pmon", "-c", "1", "-s", "um"],
+                capture_output=True,
+                text=True,
+                timeout=1,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            return "GPU --"
+        if result.returncode != 0:
+            return "GPU --"
+
+        gpu_util = 0
+        vram_mb = 0
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split()
+            if len(parts) < 10:
+                continue
+            try:
+                pid = int(parts[1])
+            except ValueError:
+                continue
+            if pid not in pids:
+                continue
+            gpu_util += self._safe_int(parts[3])
+            vram_mb += self._safe_int(parts[9])
+        return f"GPU {min(100, gpu_util)}%  |  VRAM {vram_mb} MB"
+
+    @staticmethod
+    def _safe_int(value: str) -> int:
+        try:
+            return int(value)
+        except ValueError:
+            return 0
+
+
 class HeadlessSettingsWindow(Gtk.Window):
     def __init__(self, parent: "HeadlessControlWindow"):
         super().__init__(application=parent.get_application(), title="Configurar NV Broadcast")
@@ -350,20 +476,6 @@ class HeadlessSettingsWindow(Gtk.Window):
         self._fps = Gtk.SpinButton.new_with_range(5, 120, 1)
         self._fps.set_value(self._config.video.fps)
         root.append(self._row("FPS", self._fps))
-
-        self._background = Gtk.Switch()
-        self._background.set_active(bool(self._config.video.background_removal))
-        root.append(self._row("Remover fundo", self._background))
-
-        self._background_mode = Gtk.ComboBoxText()
-        for key, label in (
-            ("remove", "Remover"),
-            ("blur", "Desfocar"),
-            ("replace", "Substituir"),
-        ):
-            self._background_mode.append(key, label)
-        self._background_mode.set_active_id(self._config.video.background_mode)
-        root.append(self._row("Modo do fundo", self._background_mode))
 
         self._mirror = Gtk.Switch()
         self._mirror.set_active(bool(self._config.video.mirror))
@@ -553,8 +665,6 @@ class HeadlessSettingsWindow(Gtk.Window):
         config.video.width = self._width.get_value_as_int()
         config.video.height = self._height.get_value_as_int()
         config.video.fps = self._fps.get_value_as_int()
-        config.video.background_removal = self._background.get_active()
-        config.video.background_mode = self._background_mode.get_active_id() or "blur"
         config.video.mirror = self._mirror.get_active()
         config.audio.mic_device = self._selected_device(self._mic_combo, self._mic_map)
         config.audio.speaker_device = self._selected_device(self._speaker_combo, self._speaker_map)
@@ -588,6 +698,7 @@ class HeadlessControlWindow(Gtk.ApplicationWindow):
         self.connect("close-request", self._on_close_request)
         self._monitor_module_id: str | None = None
         self._logs_window: HeadlessLogsWindow | None = None
+        self._pending_update: VerifiedSourceUpdate | None = None
 
         header = Gtk.HeaderBar()
         header.set_show_title_buttons(True)
@@ -643,6 +754,9 @@ class HeadlessControlWindow(Gtk.ApplicationWindow):
         grid.attach(self._minimize_btn, 0, 7, 2, 1)
         grid.attach(self._quit_btn, 0, 8, 2, 1)
 
+        self._resource_meter = ResourceUsageMeter()
+        root.append(self._resource_meter)
+
         self._both_btn.connect("clicked", self._on_both)
         self._cam_btn.connect("clicked", self._on_cam)
         self._mic_btn.connect("clicked", self._on_mic)
@@ -661,7 +775,9 @@ class HeadlessControlWindow(Gtk.ApplicationWindow):
 
         self._busy = False
         self._refresh()
+        self._refresh_resources()
         GLib.timeout_add_seconds(3, self._refresh)
+        GLib.timeout_add_seconds(1, self._refresh_resources)
 
     def _toast(self, message: str) -> None:
         self._toast_overlay.add_toast(Adw.Toast.new(message))
@@ -784,11 +900,76 @@ class HeadlessControlWindow(Gtk.ApplicationWindow):
         HeadlessSettingsWindow(self).present()
 
     def _on_update(self, _button):
-        try:
-            Gio.AppInfo.launch_default_for_uri(FORK_RELEASES_URL, None)
-            self._toast("Abrindo releases do fork")
-        except Exception as exc:
-            self._toast(f"Falha ao abrir update: {exc}")
+        if self._busy:
+            return
+        self._set_busy(True)
+        self._status.set_label("Verificando update...")
+
+        def worker():
+            release = fetch_latest_release(timeout=8, url=HEADLESS_FORK_RELEASE_URL)
+            if release is None:
+                GLib.idle_add(self._finish_update_check, SourceUpdateResult(False, "Nao foi possivel consultar releases."))
+                return
+            if not is_newer_version(release.version, __version__):
+                GLib.idle_add(
+                    self._finish_update_check,
+                    SourceUpdateResult(True, f"Voce ja esta na versao mais nova ({release.tag_name}).", release.version),
+                )
+                return
+            result = prepare_verified_source_update(release)
+            GLib.idle_add(self._finish_update_check, result)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_update_check(self, result: SourceUpdateResult | VerifiedSourceUpdate):
+        self._set_busy(False)
+        self._refresh()
+        if isinstance(result, SourceUpdateResult):
+            self._toast(result.message)
+            return False
+
+        self._pending_update = result
+        dialog = Adw.MessageDialog(
+            transient_for=self,
+            heading=f"Atualizar para {result.tag_name}?",
+            body=(
+                f"SHA verificado: {result.commit_sha[:12]}\n"
+                f"Atual: {result.current_sha[:12]}\n\n"
+                "A atualizacao so sera aplicada porque a tag local bate com a tag remota do GitHub."
+            ),
+        )
+        dialog.add_response("cancel", "Cancelar")
+        dialog.add_response("update", "Atualizar")
+        dialog.set_response_appearance("update", Adw.ResponseAppearance.SUGGESTED)
+        dialog.set_default_response("update")
+        dialog.set_close_response("cancel")
+        dialog.connect("response", self._on_update_confirmed)
+        dialog.present()
+        return False
+
+    def _on_update_confirmed(self, _dialog, response: str) -> None:
+        if response != "update" or self._pending_update is None:
+            self._pending_update = None
+            return
+        plan = self._pending_update
+        self._pending_update = None
+        self._set_busy(True)
+        self._status.set_label("Aplicando update validado...")
+
+        def worker():
+            result = apply_verified_source_update(plan)
+            if result.ok:
+                for service in (VCAM_SERVICE, AUDIO_SERVICE):
+                    _systemctl(["restart", service])
+            GLib.idle_add(self._finish_update_apply, result)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _finish_update_apply(self, result: SourceUpdateResult):
+        self._set_busy(False)
+        self._refresh()
+        self._toast(result.message)
+        return False
 
     def _on_close_request(self, _window):
         self._level_meter.stop()
@@ -841,6 +1022,13 @@ class HeadlessControlWindow(Gtk.ApplicationWindow):
         self._both_btn.set_sensitive(not (cam and mic))
         self._off_btn.set_sensitive(cam or mic)
         self._monitor_btn.set_label("Parar retorno" if _monitor_loopback_modules() else "Ouvir mic")
+        return True
+
+    def _refresh_resources(self):
+        try:
+            self._resource_meter.update()
+        except Exception:
+            self._resource_meter._summary.set_label("CPU --  |  MEM --  |  GPU --")
         return True
 
 

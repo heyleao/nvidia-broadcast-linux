@@ -84,7 +84,7 @@ class ArchSupportTests(unittest.TestCase):
             reason = installer.unsupported_reason_for_mode("zeus")
         self.assertIsNotNone(reason)
         self.assertIn("Python 3.14", reason)
-        self.assertIn("DocZeus", reason)
+        self.assertIn("CUDA modes", reason)
 
     def test_get_tensorrt_lib_dirs_accepts_current_cu12_package_name(self):
         with TemporaryDirectory() as tmp:
@@ -153,7 +153,7 @@ class ArchSupportTests(unittest.TestCase):
             self.assertEqual(get_trt_cache_dir(1), config_dir / "trt_cache" / "gpu1")
 
     def test_legacy_tray_enabled_by_default_outside_kde(self):
-        with mock.patch.dict("os.environ", {}, clear=False):
+        with mock.patch.dict("os.environ", {}, clear=True):
             self.assertTrue(legacy_tray_enabled())
 
     def test_legacy_tray_can_be_explicitly_enabled(self):

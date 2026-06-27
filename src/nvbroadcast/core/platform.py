@@ -363,12 +363,26 @@ def get_onnx_providers(gpu_index: int = 0,
     """Return the ONNX Runtime execution providers for this platform."""
     import onnxruntime as ort
     available = ort.get_available_providers()
+    cuda_device_id = max(0, int(gpu_index))
+    if supports_linux_gpu_stack() and (
+        'CUDAExecutionProvider' in available or 'TensorrtExecutionProvider' in available
+    ):
+        try:
+            from nvbroadcast.core.gpu import detect_gpus, get_cuda_device_id
+            gpus = detect_gpus()
+            if gpus and not any(gpu.index == cuda_device_id for gpu in gpus):
+                cuda_device_id = gpus[0].index
+            cuda_device_id = get_cuda_device_id(cuda_device_id)
+            if gpus and cuda_device_id >= len(gpus):
+                cuda_device_id = 0
+        except Exception:
+            cuda_device_id = 0
     providers = []
 
     if supports_linux_gpu_stack() and use_tensorrt and 'TensorrtExecutionProvider' in available:
-        cache_dir = trt_cache_path or str(get_trt_cache_dir(gpu_index))
+        cache_dir = trt_cache_path or str(get_trt_cache_dir(cuda_device_id))
         providers.append(('TensorrtExecutionProvider', {
-            'device_id': gpu_index,
+            'device_id': cuda_device_id,
             'trt_max_workspace_size': 2 * 1024 * 1024 * 1024,
             'trt_fp16_enable': True,
             'trt_engine_cache_enable': True,
@@ -378,7 +392,7 @@ def get_onnx_providers(gpu_index: int = 0,
 
     if supports_linux_gpu_stack() and 'CUDAExecutionProvider' in available:
         providers.append(('CUDAExecutionProvider', {
-            'device_id': gpu_index,
+            'device_id': cuda_device_id,
             'arena_extend_strategy': 'kSameAsRequested',
             'gpu_mem_limit': 2 * 1024 * 1024 * 1024,
             'cudnn_conv_algo_search': 'HEURISTIC',

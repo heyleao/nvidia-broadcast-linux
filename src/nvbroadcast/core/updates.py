@@ -9,14 +9,17 @@ from __future__ import annotations
 import json
 import os
 import re
+import subprocess
 import sys
 import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 
 LATEST_RELEASE_URL = "https://api.github.com/repos/Hkshoonya/nvidia-broadcast-linux/releases/latest"
+HEADLESS_FORK_RELEASE_URL = "https://api.github.com/repos/heyleao/nvidia-broadcast-linux/releases/latest"
 DEFAULT_CHECK_INTERVAL_SECONDS = 6 * 60 * 60
 SNAP_STORE_URL = "https://snapcraft.io/nvbroadcast"
 
@@ -41,6 +44,24 @@ class UpdateTarget:
     button_label: str
     tooltip: str
     url: str
+
+
+@dataclass(frozen=True)
+class VerifiedSourceUpdate:
+    repo_dir: Path
+    remote: str
+    tag_name: str
+    version: str
+    commit_sha: str
+    current_sha: str
+
+
+@dataclass(frozen=True)
+class SourceUpdateResult:
+    ok: bool
+    message: str
+    version: str = ""
+    commit_sha: str = ""
 
 
 def _version_key(version: str) -> tuple[int, ...]:
@@ -124,9 +145,9 @@ def release_info_from_payload(payload: dict) -> ReleaseInfo:
     )
 
 
-def fetch_latest_release(timeout: int = 5) -> ReleaseInfo | None:
+def fetch_latest_release(timeout: int = 5, url: str = LATEST_RELEASE_URL) -> ReleaseInfo | None:
     request = Request(
-        LATEST_RELEASE_URL,
+        url,
         headers={
             "Accept": "application/vnd.github+json",
             "User-Agent": "nvbroadcast-update-checker",
@@ -141,3 +162,153 @@ def fetch_latest_release(timeout: int = 5) -> ReleaseInfo | None:
     if not isinstance(payload, dict):
         return None
     return release_info_from_payload(payload)
+
+
+def _run_git(repo_dir: Path, args: list[str], timeout: int = 20) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", *args],
+        cwd=repo_dir,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
+
+def find_git_checkout(start: Path | None = None) -> Path | None:
+    if start is None:
+        start = Path(__file__).resolve()
+    directory = start if start.is_dir() else start.parent
+    result = subprocess.run(
+        ["git", "-C", str(directory), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    if result.returncode != 0:
+        return None
+    path = Path(result.stdout.strip())
+    return path if path.exists() else None
+
+
+def _remote_names(repo_dir: Path) -> list[str]:
+    result = _run_git(repo_dir, ["remote"], timeout=5)
+    if result.returncode != 0:
+        return []
+    return [line.strip() for line in result.stdout.splitlines() if line.strip()]
+
+
+def _remote_url(repo_dir: Path, remote: str) -> str:
+    result = _run_git(repo_dir, ["remote", "get-url", remote], timeout=5)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def select_update_remote(repo_dir: Path) -> str | None:
+    remotes = _remote_names(repo_dir)
+    for remote in remotes:
+        if "heyleao/nvidia-broadcast-linux" in _remote_url(repo_dir, remote):
+            return remote
+    for preferred in ("heyleao", "origin"):
+        if preferred in remotes:
+            return preferred
+    return remotes[0] if remotes else None
+
+
+def _tag_commit_from_ls_remote(output: str, tag_name: str) -> str | None:
+    plain_ref = f"refs/tags/{tag_name}"
+    peeled_ref = f"{plain_ref}^{{}}"
+    plain_sha = None
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) < 2:
+            continue
+        sha, ref = parts[0], parts[1]
+        if ref == peeled_ref:
+            return sha
+        if ref == plain_ref:
+            plain_sha = sha
+    return plain_sha
+
+
+def _remote_tag_commit(repo_dir: Path, remote: str, tag_name: str) -> str | None:
+    result = _run_git(repo_dir, ["ls-remote", "--tags", remote, f"refs/tags/{tag_name}"], timeout=20)
+    if result.returncode != 0:
+        return None
+    return _tag_commit_from_ls_remote(result.stdout, tag_name)
+
+
+def _local_tag_commit(repo_dir: Path, tag_name: str) -> str | None:
+    result = _run_git(repo_dir, ["rev-parse", f"{tag_name}^{{commit}}"], timeout=5)
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip()
+
+
+def prepare_verified_source_update(
+    release: ReleaseInfo,
+    *,
+    repo_dir: Path | None = None,
+    remote: str | None = None,
+) -> SourceUpdateResult | VerifiedSourceUpdate:
+    repo_dir = repo_dir or find_git_checkout()
+    if repo_dir is None:
+        return SourceUpdateResult(False, "Instalacao atual nao parece ser um checkout git.")
+    remote = remote or select_update_remote(repo_dir)
+    if remote is None:
+        return SourceUpdateResult(False, "Nenhum remote git encontrado para atualizar.")
+    tag_name = release.tag_name.strip()
+    if not tag_name:
+        return SourceUpdateResult(False, "Release sem tag valida.")
+
+    remote_sha = _remote_tag_commit(repo_dir, remote, tag_name)
+    if not remote_sha:
+        return SourceUpdateResult(False, f"Nao foi possivel verificar a tag {tag_name} no GitHub.")
+
+    fetch = _run_git(repo_dir, ["fetch", "--force", remote, f"refs/tags/{tag_name}:refs/tags/{tag_name}"], timeout=60)
+    if fetch.returncode != 0:
+        return SourceUpdateResult(False, fetch.stderr.strip() or f"Falha ao baixar a tag {tag_name}.")
+
+    local_sha = _local_tag_commit(repo_dir, tag_name)
+    if local_sha != remote_sha:
+        return SourceUpdateResult(False, "SHA da tag local nao bate com o SHA remoto. Atualizacao bloqueada.")
+
+    current = _run_git(repo_dir, ["rev-parse", "HEAD"], timeout=5)
+    if current.returncode != 0:
+        return SourceUpdateResult(False, "Nao foi possivel identificar o SHA atual.")
+    current_sha = current.stdout.strip()
+    if current_sha == remote_sha:
+        return SourceUpdateResult(True, f"Ja esta atualizado em {tag_name}.", release.version, remote_sha)
+
+    return VerifiedSourceUpdate(
+        repo_dir=repo_dir,
+        remote=remote,
+        tag_name=tag_name,
+        version=release.version,
+        commit_sha=remote_sha,
+        current_sha=current_sha,
+    )
+
+
+def apply_verified_source_update(plan: VerifiedSourceUpdate) -> SourceUpdateResult:
+    status = _run_git(plan.repo_dir, ["status", "--porcelain"], timeout=5)
+    if status.returncode != 0:
+        return SourceUpdateResult(False, "Nao foi possivel verificar o estado do checkout.")
+    if status.stdout.strip():
+        return SourceUpdateResult(
+            False,
+            "Existem alteracoes locais no checkout. Atualizacao bloqueada para nao sobrescrever arquivos.",
+        )
+
+    local_sha = _local_tag_commit(plan.repo_dir, plan.tag_name)
+    if local_sha != plan.commit_sha:
+        return SourceUpdateResult(False, "A tag mudou depois da verificacao. Atualizacao bloqueada.")
+
+    checkout = _run_git(plan.repo_dir, ["checkout", "--detach", plan.commit_sha], timeout=30)
+    if checkout.returncode != 0:
+        return SourceUpdateResult(False, checkout.stderr.strip() or "Falha ao aplicar checkout da versao.")
+
+    return SourceUpdateResult(
+        True,
+        f"Atualizado para {plan.tag_name} ({plan.commit_sha[:12]}). Reinicie o painel se necessario.",
+        plan.version,
+        plan.commit_sha,
+    )

@@ -31,7 +31,8 @@ dependencies = [
     "Pillow>=10.0",
     "opencv-python-headless>=4.8",
     "mediapipe>=0.10",
-    "onnxruntime>=1.24.4,<1.25",
+    "onnxruntime-gpu==1.24.4; sys_platform == 'linux'",
+    "onnxruntime>=1.24.4,<1.25; sys_platform == 'darwin'",
     "pyrnnoise>=0.4",
     "onnx>=1.14",
     "psutil>=5.9",
@@ -55,7 +56,7 @@ cuda = [
     "nvidia-cufft-cu12",
     "nvidia-nvjitlink-cu12",
     "nvidia-cuda-nvrtc-cu12",
-    "onnxruntime-gpu==1.24.4",
+    "onnxruntime-gpu==1.24.4; sys_platform == 'linux'",
 ]
 meeting = [
     "faster-whisper",

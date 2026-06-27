@@ -270,13 +270,13 @@ class DependencyInstaller(GObject.Object):
                 ".rpm, or source installer for CUDA GPU modes."
             )
         if (
-            mode_key in ("zeus", "killer")
+            mode_key in ("doczeus", "zeus", "killer")
             and not has_tensorrt_runtime()
             and not supports_tensorrt_python()
         ):
             return (
                 f"{tensorrt_python_unsupported_reason()} "
-                "Use DocZeus or the CUDA modes instead."
+                "Use the CUDA modes instead."
             )
         return None
 
@@ -287,7 +287,7 @@ class DependencyInstaller(GObject.Object):
         if mode_key in ("doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer"):
             if not self.is_available("cupy"):
                 missing.append("cupy")
-        if mode_key in ("zeus", "killer") and not self.is_available("tensorrt"):
+        if mode_key in ("doczeus", "zeus", "killer") and not self.is_available("tensorrt"):
             missing.append("tensorrt")
         return missing
 

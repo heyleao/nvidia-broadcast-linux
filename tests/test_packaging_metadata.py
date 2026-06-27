@@ -61,8 +61,8 @@ class PackagingMetadataTests(unittest.TestCase):
     def test_cuda_extra_contains_onnxruntime_gpu_provider(self):
         pyproject = (REPO_ROOT / "pyproject.toml").read_text()
         self.assertIn("cuda = [", pyproject)
-        self.assertIn('"onnxruntime-gpu==1.24.4"', pyproject)
-        self.assertIn('"onnxruntime>=1.24.4,<1.25"', pyproject)
+        self.assertIn("\"onnxruntime-gpu==1.24.4; sys_platform == 'linux'\"", pyproject)
+        self.assertIn("\"onnxruntime>=1.24.4,<1.25; sys_platform == 'darwin'\"", pyproject)
         self.assertNotIn('"pycuda>=2024.1"', pyproject)
         self.assertNotIn('"nvidia-cusparse-cu12"', pyproject)
         self.assertNotIn('"nvidia-cusolver-cu12"', pyproject)
@@ -216,7 +216,7 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertIn("httpx", requirements)
         self.assertIn('openai-whisper>=20231117; python_version < "3.14"', requirements)
         self.assertIn("onnxruntime-gpu==1.24.4", requirements)
-        self.assertIn("onnxruntime>=1.24.4,<1.25", requirements)
+        self.assertIn('onnxruntime>=1.24.4,<1.25; sys_platform == "darwin"', requirements)
         self.assertNotIn("onnxruntime-gpu>=1.16", requirements)
         self.assertNotIn("\nopenai-whisper>=20231117\n", requirements)
 

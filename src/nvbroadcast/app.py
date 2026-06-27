@@ -81,12 +81,12 @@ _CPU_AUTO_MODES = ("cpu_quality", "cpu_light", "cpu_low")
 _AUTO_MODE_ORDER = (*_GPU_AUTO_MODES, *_CPU_AUTO_MODES)
 
 _MODE_LABELS = {
-    "doczeus": "DocZeus - Best Quality GPU",
     "cuda_max": "CUDA - High Quality",
     "cuda_balanced": "CUDA - Balanced",
-    "zeus": "Zeus - Fast GPU Mode",
-    "killer": "Killer - Fastest GPU Mode",
     "cuda_perf": "CUDA - Fast",
+    "doczeus": "DocZeus - TensorRT Max Quality",
+    "zeus": "TensorRT - Zeus Balanced",
+    "killer": "TensorRT - Killer Fast",
     "cpu_quality": "CPU - High Quality",
     "cpu_light": "CPU - Fast",
     "cpu_low": "CPU - Low End",
@@ -96,9 +96,9 @@ _MODE_QUALITY_PRESETS = {
     "doczeus": "ultra",
     "cuda_max": "quality",
     "cuda_balanced": "balanced",
+    "cuda_perf": "performance",
     "zeus": "balanced",
     "killer": "performance",
-    "cuda_perf": "performance",
     "cpu_quality": "quality",
     "cpu_light": "performance",
     "cpu_low": "performance",
@@ -113,7 +113,8 @@ class NVBroadcastApp(Adw.Application):
         )
         self.config = load_config()
         if IS_LINUX and IS_ARM64 and self.config.mode_key in {
-            "doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer",
+            "doczeus", "cuda_max", "cuda_balanced", "cuda_perf",
+            "zeus", "killer",
         }:
             self.config.mode_key = "cpu_quality"
             self.config.compute_focus = "cpu"
@@ -1226,7 +1227,6 @@ class NVBroadcastApp(Adw.Application):
     def _stable_mode_key(mode_key: str) -> str:
         """Map premium or legacy modes onto the stable auto ladder."""
         return {
-            "cuda_max": "doczeus",
             "zeus": "cuda_balanced",
             "killer": "cuda_perf",
         }.get(mode_key, mode_key)

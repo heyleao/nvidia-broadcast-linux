@@ -14,6 +14,7 @@ Switches between modes when effects are toggled.
 import threading
 import time
 import subprocess
+import os
 
 import gi
 
@@ -22,7 +23,12 @@ gi.require_version("GstVideo", "1.0")
 gi.require_version("Gdk", "4.0")
 from gi.repository import Gst, GstVideo, GLib, Gdk
 
-from nvbroadcast.core.constants import DEFAULT_WIDTH, DEFAULT_HEIGHT, DEFAULT_FPS
+from nvbroadcast.core.constants import (
+    DEFAULT_WIDTH,
+    DEFAULT_HEIGHT,
+    DEFAULT_FPS,
+    VIRTUAL_CAM_LABEL,
+)
 
 
 class VideoPipeline:
@@ -36,6 +42,7 @@ class VideoPipeline:
         self._height: int = DEFAULT_HEIGHT
         self._fps: int = DEFAULT_FPS
         self._output_format: str = "YUY2"
+        self._capture_format: str = "mjpeg"
         self._prefer_hw_decode = False
         self._effects_fps: int = 30  # Can be reduced by performance profile
         self._effect_callback = None
@@ -199,6 +206,14 @@ class VideoPipeline:
         self._output_format = output_format
         self._effects_fps = min(effects_fps, fps)
         self._prefer_hw_decode = prefer_hw_decode
+        from nvbroadcast.core.platform import IS_MACOS
+        if IS_MACOS:
+            self._capture_format = "raw"
+        else:
+            from nvbroadcast.video.virtual_camera import select_camera_capture_format
+            self._capture_format = select_camera_capture_format(
+                source_device, width, height, fps
+            )
 
     def _select_decoder(self, effects_mode: bool) -> str:
         """Choose camera decode path for the active mode.
@@ -211,6 +226,9 @@ class VideoPipeline:
 
         if IS_MACOS:
             return "videoconvert"
+
+        if self._capture_format == "raw":
+            return "videoconvert" if effects_mode else "identity"
 
         if self._prefer_hw_decode and self._has_gst_element("nvjpegdec"):
             if effects_mode:
@@ -356,8 +374,8 @@ class VideoPipeline:
     def _build_passthrough_pipeline(self, vcam_enabled: bool):
         """Direct GStreamer pipeline - ZERO Python processing.
 
-        webcam -> jpegdec -> tee -> videoconvert -> v4l2sink (virtual cam)
-                               |-> appsink (preview only, low priority)
+        webcam -> decode/convert -> tee -> videoconvert -> v4l2sink (virtual cam)
+                                      |-> appsink (preview only, low priority)
 
         CPU usage: near zero (all in GStreamer C code).
         """
@@ -384,7 +402,8 @@ class VideoPipeline:
 
         # Camera source — platform-aware
         camera_src = get_gst_camera_caps(
-            self._source_device, self._width, self._height, self._fps
+            self._source_device, self._width, self._height, self._fps,
+            capture_format=self._capture_format,
         )
 
         decoder = self._select_decoder(effects_mode=False)
@@ -408,7 +427,8 @@ class VideoPipeline:
         from nvbroadcast.core.platform import IS_MACOS, get_gst_camera_caps
 
         camera_src = get_gst_camera_caps(
-            self._source_device, self._width, self._height, self._fps
+            self._source_device, self._width, self._height, self._fps,
+            capture_format=self._capture_format,
         )
 
         decoder = self._select_decoder(effects_mode=True)
@@ -446,7 +466,9 @@ class VideoPipeline:
 
         if vcam_enabled:
             if IS_MACOS:
-                # macOS: CoreMediaIO frame bridge (proprietary) → pyvirtualcam fallback
+                # macOS: CoreMediaIO frame bridge publishes the branded device.
+                # OBS fallback is opt-in only because it exposes a different
+                # camera name in meeting apps.
                 self._vcam_pipeline = None
                 self._vcam_appsrc = None
                 self._frame_bridge = None
@@ -456,17 +478,23 @@ class VideoPipeline:
                     self._frame_bridge = FrameBridge(
                         width=self._width, height=self._height
                     )
-                    print("[NV Broadcast] macOS virtual camera: CoreMediaIO extension")
+                    print(f"[NV Broadcast] macOS virtual camera: {VIRTUAL_CAM_LABEL}")
                 except Exception:
-                    try:
-                        import pyvirtualcam
-                        self._pyvirtualcam = pyvirtualcam.Camera(
-                            width=self._width, height=self._height,
-                            fps=self._fps, backend="obs",
+                    if os.getenv("NVBROADCAST_ALLOW_OBS_VCAM_FALLBACK") == "1":
+                        try:
+                            import pyvirtualcam
+                            self._pyvirtualcam = pyvirtualcam.Camera(
+                                width=self._width, height=self._height,
+                                fps=self._fps, backend="obs",
+                            )
+                            print(f"[NV Broadcast] macOS fallback virtual camera: {self._pyvirtualcam.device}")
+                        except Exception as e:
+                            print(f"[NV Broadcast] macOS virtual camera not available: {e}")
+                    else:
+                        print(
+                            "[NV Broadcast] macOS NVbroadcast virtual camera extension "
+                            "not available; OBS fallback disabled"
                         )
-                        print(f"[NV Broadcast] macOS virtual camera: {self._pyvirtualcam.device}")
-                    except Exception as e:
-                        print(f"[NV Broadcast] macOS virtual camera not available: {e}")
             else:
                 self._pyvirtualcam = None
                 self._vcam_pipeline = Gst.parse_launch(

@@ -254,7 +254,8 @@ def phase3_install(args: argparse.Namespace) -> int:
     icon = find_headless_app_icon()
     if icon is not None:
         ICON_DIR.mkdir(parents=True, exist_ok=True)
-        shutil.copyfile(icon, HEADLESS_ICON)
+        if icon.resolve() != HEADLESS_ICON.resolve():
+            shutil.copyfile(icon, HEADLESS_ICON)
     APPLICATIONS_DIR.mkdir(parents=True, exist_ok=True)
     CONTROL_DESKTOP.write_text(
         "\n".join(

@@ -117,7 +117,7 @@ LAUNCHER
     install -d "$PKG_DIR/usr/lib/systemd/user"
     cat > "$PKG_DIR/usr/lib/systemd/user/nvbroadcast-vcam.service" << 'SVC'
 [Unit]
-Description=NV Broadcast Virtual Camera Service
+Description=NVbroadcast Virtual Camera Service
 After=graphical-session.target
 
 [Service]

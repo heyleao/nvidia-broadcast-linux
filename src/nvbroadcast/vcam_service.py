@@ -32,10 +32,17 @@ from nvbroadcast.core.constants import (
     DEFAULT_HEIGHT,
     DEFAULT_WIDTH,
     VIRTUAL_CAM_DEVICE,
+    VIRTUAL_CAM_LABEL,
 )
+from nvbroadcast.core.platform import get_gst_camera_caps
 from nvbroadcast.video.effects import VideoEffects
 from nvbroadcast.video.pipeline import VideoPipeline
-from nvbroadcast.video.virtual_camera import ensure_virtual_camera, list_camera_devices
+from nvbroadcast.video.virtual_camera import (
+    ensure_virtual_camera,
+    list_camera_devices,
+    resolve_camera_device,
+    select_camera_capture_format,
+)
 
 
 OUTPUT_FORMATS = {
@@ -45,6 +52,51 @@ OUTPUT_FORMATS = {
     "yuv420": "I420",
     "nv12": "NV12",
 }
+
+
+def build_pipeline(
+    source_device: str,
+    vcam_device: str,
+    width: int,
+    height: int,
+    fps: int,
+    output_format: str,
+) -> Gst.Pipeline:
+    """Build a raw or MJPEG webcam -> v4l2loopback pipeline."""
+    fmt = OUTPUT_FORMATS.get(output_format.lower(), "YUY2")
+    capture_format = select_camera_capture_format(source_device, width, height, fps)
+    camera_src = get_gst_camera_caps(
+        source_device, width, height, fps, capture_format=capture_format
+    )
+    decoder = "jpegdec ! videoconvert" if capture_format == "mjpeg" else "videoconvert"
+
+    pipeline_str = (
+        f"{camera_src} ! "
+        f"{decoder} ! "
+        f"video/x-raw,format={fmt},width={width},height={height},framerate={fps}/1 ! "
+        f"identity drop-allocation=true ! "
+        f"v4l2sink device={vcam_device} io-mode=2 sync=false async=false"
+    )
+
+    print(f"[NVIDIA Broadcast VCam] Pipeline: {pipeline_str}")
+    try:
+        return Gst.parse_launch(pipeline_str)
+    except GLib.Error:
+        alternate_format = "raw" if capture_format == "mjpeg" else "mjpeg"
+        camera_src = get_gst_camera_caps(
+            source_device, width, height, fps, capture_format=alternate_format
+        )
+        decoder = "jpegdec ! videoconvert" if alternate_format == "mjpeg" else "videoconvert"
+        print(f"[NVIDIA Broadcast VCam] Trying {alternate_format} source fallback...")
+        pipeline_str = (
+            f"{camera_src} ! "
+            f"{decoder} ! "
+            f"video/x-raw,format={fmt},width={width},height={height},framerate={fps}/1 ! "
+            f"identity drop-allocation=true ! "
+            f"v4l2sink device={vcam_device} io-mode=2 sync=false async=false"
+        )
+        print(f"[NVIDIA Broadcast VCam] Pipeline: {pipeline_str}")
+        return Gst.parse_launch(pipeline_str)
 
 MODE_MAP = {
     "doczeus": ("max_quality", "cupy", False, True, False),
@@ -181,7 +233,7 @@ class HeadlessEffectsCamera:
         return result.tobytes()
 
     def _resolve_source_device(self) -> str:
-        source_device = self.args.device or self.config.video.camera_device
+        source_device = resolve_camera_device(self.args.device or self.config.video.camera_device)
         if not source_device or source_device == "/dev/video0":
             cameras = list_camera_devices()
             if cameras:
@@ -416,9 +468,12 @@ class OnDemandHeadlessCamera:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="NVIDIA Broadcast Virtual Camera Service - headless effects pipeline"
+        description=f"{VIRTUAL_CAM_LABEL} Virtual Camera Service - keeps virtual camera available for apps"
     )
-    parser.add_argument("--device", "-d", help="Source camera device")
+    parser.add_argument(
+        "--device", "-d",
+        help="Source camera device (default: auto-detect or from config)",
+    )
     parser.add_argument(
         "--vcam",
         default=VIRTUAL_CAM_DEVICE,

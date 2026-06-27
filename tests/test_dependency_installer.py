@@ -36,6 +36,40 @@ from nvbroadcast.core import dependency_installer
 
 
 class DependencyInstallerTests(unittest.TestCase):
+    def test_cuda_mode_runtime_requires_cupy_and_cuda_provider(self):
+        with mock.patch.object(dependency_installer, "_has_cupy", return_value=True), \
+             mock.patch.object(dependency_installer, "has_cuda_inference_runtime", return_value=False):
+            self.assertFalse(dependency_installer._has_cuda_mode_runtime())
+
+        with mock.patch.object(dependency_installer, "_has_cupy", return_value=True), \
+             mock.patch.object(dependency_installer, "has_cuda_inference_runtime", return_value=True):
+            self.assertTrue(dependency_installer._has_cuda_mode_runtime())
+
+    def test_cuda_runtime_install_spec_includes_gpu_inference_provider(self):
+        spec = dependency_installer.PACKAGE_SPECS["cupy"]
+        install_args = spec["install_args"]
+        self.assertIn("--upgrade", install_args)
+        self.assertIn("cupy-cuda12x", install_args)
+        self.assertIn("onnxruntime-gpu==1.24.4", install_args)
+        self.assertIn("nvidia-cudnn-cu12", install_args)
+        self.assertIn("nvidia-cuda-nvrtc-cu12", install_args)
+        self.assertIn("ONNX Runtime GPU", spec["summary"])
+        self.assertIn("onnxruntime-gpu==1.24.4", spec["help"])
+        self.assertNotIn("onnxruntime-gpu>=", spec["help"])
+
+    def test_snap_cuda_modes_report_package_limitation_when_runtime_missing(self):
+        installer = dependency_installer.DependencyInstaller()
+        with mock.patch.dict(dependency_installer.os.environ, {"SNAP": "/snap/nvbroadcast/current"}, clear=False), \
+             mock.patch.object(dependency_installer, "_has_cuda_mode_runtime", return_value=False), \
+             mock.patch.object(dependency_installer, "IS_LINUX", True), \
+             mock.patch.object(dependency_installer, "IS_ARM64", False):
+            reason = installer.unsupported_reason_for_mode("doczeus")
+
+        self.assertIsNotNone(reason)
+        self.assertIn("Snap build", reason)
+        self.assertIn("latest Snap", reason)
+        self.assertIn(".deb", reason)
+
     def test_has_whisper_requires_visible_backend_spec(self):
         def fake_find_spec(name):
             return None

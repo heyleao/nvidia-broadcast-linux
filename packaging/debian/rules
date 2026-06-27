@@ -46,7 +46,7 @@ override_dh_auto_install:
 	# Systemd user service
 	install -d $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user
 	@echo '[Unit]' > $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
-	@echo 'Description=NV Broadcast Virtual Camera Service' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
+	@echo 'Description=NVbroadcast Virtual Camera Service' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
 	@echo 'After=graphical-session.target' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
 	@echo '' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service
 	@echo '[Service]' >> $(CURDIR)/debian/nvbroadcast/usr/lib/systemd/user/nvbroadcast-vcam.service

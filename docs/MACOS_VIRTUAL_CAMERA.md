@@ -2,8 +2,10 @@
 
 ## Overview
 
-Replace the pyvirtualcam/OBS bridge with a proprietary CoreMediaIO Camera Extension
-that appears as "NV Broadcast" in all macOS video apps (Zoom, FaceTime, Chrome, etc.).
+Use the proprietary CoreMediaIO Camera Extension as the default macOS virtual
+camera path so the app appears consistently as "NVbroadcast" in macOS video
+apps (Zoom, FaceTime, Chrome, etc.). The old pyvirtualcam/OBS bridge is a
+developer-only fallback, not the shipped default.
 
 ## Architecture
 
@@ -31,7 +33,7 @@ Zoom / FaceTime / Chrome / OBS / Discord
 
 3-tier CoreMediaIO hierarchy:
 - `ExtensionProvider` — manages all virtual camera devices
-- `DeviceSource` — "NV Broadcast" device properties (name, model, transport)
+- `DeviceSource` — "NVbroadcast" device properties (name, model, transport)
 - `StreamSource` — frame delivery (CVPixelBuffer via IOSurface)
 
 ### 2. IPC: Python → Extension
@@ -106,5 +108,5 @@ macos/
 
 ## Status
 
-- [x] Phase 1: pyvirtualcam bridge (current — works with OBS)
-- [ ] Phase 2: Proprietary CoreMediaIO extension (this document)
+- [x] Phase 1: pyvirtualcam bridge (legacy developer fallback)
+- [x] Phase 2: Proprietary CoreMediaIO extension (current default)

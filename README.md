@@ -50,6 +50,28 @@ camera and microphone pipelines should stay alive in the background.
 
 See [Headless Camera and Microphone Services](docs/HEADLESS_SERVICES.md).
 
+### v1.1.11 — OBS Camera Compatibility and Packaging Reliability Patch
+
+- **OBS White Preview Fixed** — The camera pipeline now handles cameras that expose raw video modes instead of MJPEG for the selected resolution
+- **Safer Camera Auto-Detection** — Startup now avoids stale, metadata-only, and virtual-loopback camera nodes after reboot, reducing blank preview and “no effects” cases
+- **Headless Virtual Camera Fixed Too** — `nvbroadcast-vcam` uses the same camera compatibility path as the main app, so OBS-only workflows get the same fix
+- **CUDA Runtime Packaging Fixed** — Source, Debian, RPM, and amd64 Snap installs now use the correct package paths for the CUDA mode runtime
+- **Regression Tests Added** — Release checks now cover raw-camera fallback, camera-node filtering, headless virtual camera behavior, and package metadata consistency
+
+> If you are still on `v1.1.10` or older, update to `v1.1.11`. This is the recommended stable patch for OBS camera compatibility and package install reliability.
+
+### v1.1.10 — Live Edge Quality and Compute Control Update
+
+- **Cleaner Live Background Edges** — Background replace is steadier around hair, shoulders, raised hands, and finger gaps during motion
+- **Less Edge Cleanup Cost** — The DocZeus/fused CUDA path now uses the same replace-mode foreground cleanup while the CPU fringe cleanup does less full-frame work
+- **New Compute Selector** — Users can choose Auto, GPU Focused, or CPU Focused depending on whether they want automatic tuning, CUDA preference, or lower GPU load
+- **CUDA Install Path Fixed** — Source, Debian, RPM, and amd64 Snap installs now install the CUDA mode runtime on NVIDIA systems instead of installing only CuPy and leaving ONNX inference on CPU
+- **Clearer GPU Runtime Checks** — CUDA modes now require both CuPy compositing and the ONNX Runtime `CUDAExecutionProvider`, so the app no longer treats a partial GPU install as ready
+- **Meeting Dependencies Stay Safe** — Packaged installs continue using the lighter `faster-whisper` runtime, and `openai-whisper` remains guarded for Python versions that support it
+- **Sponsors Are Visible** — Public GitHub Sponsors now show in the README, dedicated sponsor wall, and About window so users can see who is backing the project
+
+> If you are still on `v1.1.9` or older, update to `v1.1.10`. This is the recommended stable update for live background edge quality, compute-mode clarity, and release packaging safety.
+
 ### v1.1.9 — Meeting Runtime Dependency Hotfix
 
 - **Meeting Transcription Install Fixed** — The app now installs `faster-whisper` safely without skipping the support packages required for local transcription
@@ -284,6 +306,8 @@ See [Headless Camera and Microphone Services](docs/HEADLESS_SERVICES.md).
 > **Edge Refine** toggle available for Killer and Zeus modes — adds ~27ms but recovers 89.9% of max quality edges.
 >
 > Switch modes anytime from the **Mode** dropdown. No restart needed.
+>
+> CUDA modes require the CUDA mode runtime: CuPy for compositing plus ONNX Runtime with `CUDAExecutionProvider` for model inference. Source, `.deb`, `.rpm`, and amd64 Snap installs handle this automatically on NVIDIA systems. The arm64 Snap build stays CPU-safe because ONNX Runtime GPU wheels are not published for Linux arm64 yet.
 
 ---
 
@@ -406,7 +430,7 @@ When Edge Refine is toggled ON (Zeus/Killer modes):
 | **GPU** | NVIDIA GTX 1060 | RTX 3060 or newer |
 | **VRAM** | 2 GB | 4 GB+ |
 | **CPU** | 4 cores | 8+ cores (if using CPU compositing) |
-| **Webcam** | Any USB camera | 720p+ with MJPEG |
+| **Webcam** | Any USB camera | 720p+ with MJPEG or raw V4L2 modes |
 | **Mic** | Any audio input | — |
 
 ### Software
@@ -450,6 +474,8 @@ sudo snap install nvbroadcast
 
 Snap users typically receive background refreshes from `snapd`. When the app sees a newer stable release, the in-app update button opens the Snap Store listing so the user can move directly into the store-managed upgrade path.
 
+The amd64 Snap build includes the CUDA mode runtime for NVIDIA systems. The arm64 Snap build stays CPU-safe because the required ONNX Runtime GPU wheels are not available for Linux arm64 yet. If CUDA modes are still unavailable on amd64 Snap, use the source installer, `.deb`, or `.rpm` release package as the fallback.
+
 Packaged releases are intended to include the local meeting transcription runtime. Source installs from this repo can still use the in-app runtime installer flow for optional components.
 
 ### Linux Installer Details
@@ -458,10 +484,11 @@ The installer:
 1. **Detects your distro** and package manager
 2. **Checks all requirements** (Python, PipeWire, GPU, DKMS, kernel headers)
 3. **Installs missing packages** with the correct names for your distro
-4. **Asks about compositing** — CPU, GStreamer GL, or CuPy CUDA
-5. **Sets up virtual camera**, launcher scripts, desktop entry, systemd service
-6. **Verifies GPU acceleration** and writes initial config
-7. **Lets optional runtimes install later** inside the app without blocking the rest of the UI
+4. **Installs NVIDIA CUDA mode runtime packages** when an NVIDIA GPU is detected
+5. **Asks about compositing** — CPU, GStreamer GL, or CuPy CUDA
+6. **Sets up virtual camera**, launcher scripts, desktop entry, systemd service
+7. **Verifies GPU acceleration** and writes initial config
+8. **Lets optional runtimes install later** inside the app without blocking the rest of the UI
 
 ### Update Behavior
 
@@ -510,12 +537,15 @@ source .venv/bin/activate
 # 3. Install
 pip install -e .
 
-# 4. Optional: CuPy for GPU compositing
+# For NVIDIA GPU acceleration, install the CUDA extra instead:
+pip install -e ".[cuda]"
+
+# 4. Optional: CuPy-only retry for GPU compositing
 pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12
 
 # 5. Virtual camera
 sudo modprobe v4l2loopback devices=1 video_nr=10 \
-    card_label="NVIDIA Broadcast" exclusive_caps=1 max_buffers=4
+    card_label="NVbroadcast" exclusive_caps=1 max_buffers=4
 
 # 6. Run
 python -m nvbroadcast
@@ -537,7 +567,7 @@ nvbroadcast          # Launch GUI (first time: setup wizard)
 2. App starts and auto-begins streaming
 3. Configure effects, select resolution/FPS/mode
 4. **Close the window** — app minimizes to background, virtual camera stays active
-5. Open **Chrome / Zoom / Discord / OBS** — select **"NVIDIA Broadcast"** as your camera
+5. Open **Chrome / Zoom / Discord / OBS** — select **"NVbroadcast"** as your camera
 6. **Next login** — app starts automatically with all your settings remembered
 
 ### Controls
@@ -594,12 +624,17 @@ fuser -k /dev/video0
 <details>
 <summary><strong>No GPU acceleration (running on CPU)</strong></summary>
 
-Reinstall CUDA runtime libraries:
+From the source checkout, install the CUDA extra. This installs the ONNX Runtime GPU provider and CUDA runtime libraries used by the CUDA modes:
 ```bash
-.venv/bin/pip install --force-reinstall nvidia-cublas-cu12 nvidia-cuda-runtime-cu12 \
-    nvidia-cudnn-cu12 nvidia-curand-cu12 nvidia-cufft-cu12 nvidia-cusparse-cu12 \
-    nvidia-cusolver-cu12 nvidia-nvjitlink-cu12 nvidia-cuda-nvrtc-cu12
+.venv/bin/pip install --upgrade ".[cuda]"
 ```
+
+Verify that ONNX Runtime can see the GPU provider:
+```bash
+.venv/bin/python -c "import onnxruntime as ort; print(ort.get_available_providers())"
+```
+
+The output should include `CUDAExecutionProvider`. On Python `3.14+`, TensorRT may still be unavailable, but CUDA modes can run when the CUDA extra installs successfully.
 
 </details>
 
@@ -622,7 +657,7 @@ v4l2-ctl -d /dev/video0 --list-formats-ext   # Check supported resolutions
 ```
 nvidia-broadcast-linux/
 ├── src/nvbroadcast/
-│   ├── __init__.py              # Package version (1.1.9)
+│   ├── __init__.py              # Package version (1.1.11)
 │   ├── app.py                   # GTK4 app: modes, effects, pipeline management
 │   ├── vcam_service.py          # Headless virtual camera service
 │   ├── core/
@@ -655,7 +690,7 @@ nvidia-broadcast-linux/
 │   └── rvm_mobilenetv3_fp32_trt.onnx
 ├── install.sh                   # Multi-distro installer
 ├── uninstall.sh                 # Clean removal
-├── pyproject.toml               # Package config (v1.1.9)
+├── pyproject.toml               # Package config (v1.1.11)
 └── README.md
 ```
 
@@ -717,6 +752,14 @@ This project takes ongoing work across GPU runtimes, packaging, camera/audio com
     <img src="https://img.shields.io/badge/Sponsor_DocZeus-Support_Development-76b900?style=for-the-badge&logo=githubsponsors&logoColor=white&labelColor=1a1a1a" alt="Sponsor">
   </a>
 </p>
+
+### 💎 Featured Sponsors
+
+<!-- featured --><em>No featured sponsors yet - <a href="https://github.com/sponsors/Hkshoonya">become a Creator-tier sponsor</a> and your logo appears here.</em><!-- featured -->
+
+### 💚 Backers &amp; Supporters
+
+<!-- sponsors --><a href="https://github.com/Mattsky" title="Mattsky"><img src="https://avatars.githubusercontent.com/u/2619664?u=a3e9b73765da4dd8f3472520e40c9588c65a7803&v=4" width="55" alt="Mattsky"></a>&nbsp;<!-- sponsors -->
 
 <p align="center">
   <a href="https://github.com/sponsors/Hkshoonya">GitHub Sponsors</a> ·

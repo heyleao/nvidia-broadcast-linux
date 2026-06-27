@@ -24,7 +24,7 @@
       <li>AI meeting transcription — local Whisper, no cloud</li>
       <li>AI meeting summarizer — action items, questions, key points</li>
       <li>Recording with NVENC hardware encoding to MP4</li>
-      <li>9 processing modes from 48fps Killer to CPU fallback</li>
+      <li>9 processing modes including Killer, Zeus, DocZeus, CUDA, and CPU fallback</li>
       <li>5 built-in profiles: Meeting, Streaming, Presentation, Gaming, Clean</li>
       <li>Works with Zoom, Chrome, OBS, Discord, FaceTime</li>
     </ul>
@@ -62,6 +62,30 @@
   <content_rating type="oars-1.1" />
 
   <releases>
+    <release version="1.1.11" date="2026-06-23">
+      <description>
+        <p>OBS camera compatibility and packaging reliability patch</p>
+        <ul>
+          <li>Fixed white preview and missing-effects cases on cameras that expose raw video modes instead of MJPEG for the selected resolution</li>
+          <li>Avoided stale, metadata-only, and virtual-loopback camera nodes during startup after device order changes</li>
+          <li>Updated the headless virtual camera command to use the same camera compatibility path as the main app</li>
+          <li>Fixed CUDA runtime package paths for source, Debian, RPM, and amd64 Snap installs</li>
+          <li>Added regression tests for raw-camera fallback, camera-node filtering, headless virtual camera behavior, and package metadata consistency</li>
+        </ul>
+      </description>
+    </release>
+    <release version="1.1.10" date="2026-06-19">
+      <description>
+        <p>Live edge quality, compute control, and sponsor visibility update</p>
+        <ul>
+          <li>Improved background replacement stability around hair, shoulders, raised hands, and finger gaps during motion</li>
+          <li>Applied replace-mode fringe cleanup in the fused CUDA compositing path and reduced the CPU cost of edge cleanup</li>
+          <li>Added Auto, GPU Focused, and CPU Focused compute controls so users can choose the best performance tradeoff for their system</li>
+          <li>Kept meeting transcription packaging on the lighter faster-whisper runtime while guarding openai-whisper for compatible Python versions only</li>
+          <li>Added visible GitHub Sponsors walls and About-window backer recognition</li>
+        </ul>
+      </description>
+    </release>
     <release version="1.1.9" date="2026-05-23">
       <description>
         <p>Meeting runtime dependency hotfix</p>

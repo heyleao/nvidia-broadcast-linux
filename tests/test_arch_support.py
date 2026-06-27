@@ -7,6 +7,7 @@ from unittest import mock
 from nvbroadcast.core.config import detect_compositing_backends, detect_system_capabilities
 from nvbroadcast.core.dependency_installer import DependencyInstaller
 from nvbroadcast.core.platform import (
+    has_cuda_inference_runtime,
     get_onnx_providers,
     get_trt_cache_dir,
     get_tensorrt_lib_dirs,
@@ -121,6 +122,30 @@ class ArchSupportTests(unittest.TestCase):
                  mock.patch("nvbroadcast.core.platform.ctypes.CDLL", return_value=object()), \
                  mock.patch("importlib.util.find_spec", side_effect=fake_find_spec):
                 self.assertTrue(has_tensorrt_runtime())
+
+    def test_has_cuda_inference_runtime_requires_cuda_provider(self):
+        fake_ort = SimpleNamespace(
+            get_available_providers=lambda: ["CPUExecutionProvider"]
+        )
+        with mock.patch.dict("sys.modules", {"onnxruntime": fake_ort}), \
+             mock.patch("nvbroadcast.core.platform.supports_linux_gpu_stack", return_value=True):
+            self.assertFalse(has_cuda_inference_runtime())
+
+        fake_ort = SimpleNamespace(
+            get_available_providers=lambda: ["CUDAExecutionProvider", "CPUExecutionProvider"]
+        )
+        with mock.patch.dict("sys.modules", {"onnxruntime": fake_ort}), \
+             mock.patch("nvbroadcast.core.platform.supports_linux_gpu_stack", return_value=True):
+            self.assertTrue(has_cuda_inference_runtime())
+
+    def test_cupy_backend_requires_cuda_inference_provider(self):
+        fake_cupy = SimpleNamespace()
+        with mock.patch.dict("sys.modules", {"cupy": fake_cupy}), \
+             mock.patch("nvbroadcast.core.platform.supports_linux_gpu_stack", return_value=True), \
+             mock.patch("nvbroadcast.core.platform.has_cuda_inference_runtime", return_value=False):
+            backends = detect_compositing_backends()
+
+        self.assertFalse(backends["cupy"])
 
     def test_get_trt_cache_dir_is_per_gpu_under_config(self):
         config_dir = Path("/tmp/nvbroadcast-test-config")

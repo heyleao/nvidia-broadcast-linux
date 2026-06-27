@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import os
 import re
 import subprocess
 import sys
@@ -28,12 +29,30 @@ from gi.repository import GObject, GLib
 from nvbroadcast.core.platform import (
     IS_ARM64,
     IS_LINUX,
+    has_cuda_inference_runtime,
     has_tensorrt_runtime,
     supports_openai_whisper_python,
     supports_linux_gpu_stack,
     supports_tensorrt_python,
     tensorrt_python_unsupported_reason,
 )
+
+
+CUDA_RUNTIME_PACKAGES = [
+    "cupy-cuda12x",
+    "onnxruntime-gpu==1.24.4",
+    "nvidia-cublas-cu12",
+    "nvidia-cuda-runtime-cu12",
+    "nvidia-cudnn-cu12",
+    "nvidia-curand-cu12",
+    "nvidia-cufft-cu12",
+    "nvidia-nvjitlink-cu12",
+    "nvidia-cuda-nvrtc-cu12",
+]
+CUDA_RUNTIME_HELP_PACKAGES = [
+    "onnxruntime-gpu==1.24.4" if package.startswith("onnxruntime-gpu") else package
+    for package in CUDA_RUNTIME_PACKAGES
+]
 
 
 def _has_cupy() -> bool:
@@ -66,7 +85,17 @@ def _has_whisper() -> bool:
 
 
 def _supports_cuda_runtime() -> bool:
+    if _running_in_snap() and not _has_cuda_mode_runtime():
+        return False
     return supports_linux_gpu_stack()
+
+
+def _running_in_snap() -> bool:
+    return bool(os.environ.get("SNAP"))
+
+
+def _has_cuda_mode_runtime() -> bool:
+    return _has_cupy() and has_cuda_inference_runtime()
 
 
 def _supports_tensorrt_runtime() -> bool:
@@ -84,21 +113,25 @@ def _verify_cupy() -> bool:
         return False
 
 
+def _verify_cuda_mode_runtime() -> bool:
+    return _verify_cupy() and has_cuda_inference_runtime()
+
+
 PACKAGE_SPECS = {
     "cupy": {
-        "title": "CUDA Compositing Runtime",
+        "title": "CUDA Mode Runtime",
         "subtitle": "Needed for DocZeus and CUDA modes",
-        "size": "~800 MB",
+        "size": "~2.0 GB",
         "summary": (
-            "Installs CuPy and CUDA runtime wheels so GPU compositing modes can run "
-            "inside the app."
+            "Installs CuPy, ONNX Runtime GPU, and CUDA runtime wheels so GPU "
+            "compositing and model inference can both run inside the app."
         ),
-        "install_args": ["install", "cupy-cuda12x", "nvidia-cuda-nvrtc-cu12"],
+        "install_args": ["install", "--upgrade", *CUDA_RUNTIME_PACKAGES],
         "supported": _supports_cuda_runtime,
-        "check": _has_cupy,
-        "verify": _verify_cupy,
-        "help": "Retry later with: .venv/bin/pip install cupy-cuda12x nvidia-cuda-nvrtc-cu12",
-        "unsupported_reason": "CUDA compositing is currently available only on Linux x86_64 systems.",
+        "check": _has_cuda_mode_runtime,
+        "verify": _verify_cuda_mode_runtime,
+        "help": "Retry later with: .venv/bin/pip install --upgrade " + " ".join(CUDA_RUNTIME_HELP_PACKAGES),
+        "unsupported_reason": "CUDA modes are currently available only on Linux x86_64 systems.",
     },
     "tensorrt": {
         "title": "TensorRT Runtime",
@@ -226,6 +259,16 @@ class DependencyInstaller(GObject.Object):
             and mode_key in ("doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer")
         ):
             return "GPU CUDA and TensorRT modes are not available on Linux arm64 yet. Use CPU modes for now."
+        if (
+            _running_in_snap()
+            and mode_key in ("doczeus", "cuda_max", "cuda_balanced", "cuda_perf", "zeus", "killer")
+            and not _has_cuda_mode_runtime()
+        ):
+            return (
+                "This Snap build cannot load the CUDA mode runtime on this system. "
+                "On amd64, refresh to the latest Snap; otherwise use the .deb, "
+                ".rpm, or source installer for CUDA GPU modes."
+            )
         if (
             mode_key in ("zeus", "killer")
             and not has_tensorrt_runtime()

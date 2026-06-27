@@ -24,6 +24,20 @@ class AutoCaptureTuningTests(unittest.TestCase):
         with mock.patch("nvbroadcast.video.virtual_camera.list_camera_modes", return_value=modes):
             self.assertEqual(app._next_lower_capture_mode(), (800, 600, 30))
 
+    def test_get_valid_fps_uses_start_camera_device_override(self):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.video.camera_device = "/dev/video0"
+
+        modes = [{"width": 1280, "height": 720, "fps": [24]}]
+        with mock.patch("nvbroadcast.video.virtual_camera.list_camera_modes", return_value=modes) as list_modes:
+            self.assertEqual(
+                app._get_valid_fps(1280, 720, 30, camera_device="/dev/video2"),
+                24,
+            )
+
+        list_modes.assert_called_once_with("/dev/video2")
+
     def test_quality_profile_keeps_inline_alpha_even_for_heavy_face_stack(self):
         app = NVBroadcastApp.__new__(NVBroadcastApp)
         app.config = AppConfig()
@@ -91,6 +105,61 @@ class AutoCaptureTuningTests(unittest.TestCase):
         app._video_effects = SimpleNamespace(enabled=True, mode="blur")
 
         self.assertFalse(app._compute_inline_inference())
+
+    def test_cpu_focus_auto_modes_avoid_gpu_ladder(self):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.compute_focus = "cpu"
+        app._dependency_installer = SimpleNamespace(
+            unsupported_reason_for_mode=lambda _mode: None,
+            missing_for_mode=lambda _mode: [],
+        )
+
+        caps = {"has_nvidia": True, "gpu_vram_mb": 24576, "cpu_cores": 16}
+        with mock.patch("nvbroadcast.core.config.detect_system_capabilities", return_value=caps):
+            self.assertEqual(
+                app._available_auto_modes(),
+                ["cpu_quality", "cpu_light", "cpu_low"],
+            )
+            self.assertEqual(app._preferred_auto_mode(), "cpu_quality")
+
+    def test_gpu_focus_auto_modes_prefer_cuda_ladder(self):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.compute_focus = "gpu"
+        app._dependency_installer = SimpleNamespace(
+            unsupported_reason_for_mode=lambda _mode: None,
+            missing_for_mode=lambda _mode: [],
+        )
+
+        caps = {"has_nvidia": True, "gpu_vram_mb": 4096, "cpu_cores": 16}
+        with mock.patch("nvbroadcast.core.config.detect_system_capabilities", return_value=caps):
+            self.assertEqual(
+                app._available_auto_modes(),
+                ["doczeus", "cuda_balanced", "cuda_perf", "cpu_quality", "cpu_light", "cpu_low"],
+            )
+            self.assertEqual(app._preferred_auto_mode(), "cuda_balanced")
+
+    @mock.patch("nvbroadcast.app.save_config")
+    def test_set_compute_focus_applies_preferred_manual_mode(self, _save):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.auto_mode = True
+        app._preferred_auto_mode = mock.Mock(return_value="cpu_quality")
+        app.apply_mode_key = mock.Mock(return_value=True)
+
+        changed = NVBroadcastApp.set_compute_focus(app, "cpu")
+
+        self.assertTrue(changed)
+        self.assertEqual(app.config.compute_focus, "cpu")
+        self.assertFalse(app.config.auto_mode)
+        app.apply_mode_key.assert_called_once()
+        self.assertEqual(app.apply_mode_key.call_args.args[0], "cpu_quality")
+
+    def test_mode_compute_focus_maps_premium_modes_to_stable_ladder(self):
+        self.assertEqual(NVBroadcastApp._mode_compute_focus("killer"), "gpu")
+        self.assertEqual(NVBroadcastApp._mode_compute_focus("zeus"), "gpu")
+        self.assertEqual(NVBroadcastApp._mode_compute_focus("cpu_light"), "cpu")
 
     def test_profile_infer_height_uses_process_scale(self):
         app = NVBroadcastApp.__new__(NVBroadcastApp)
@@ -188,6 +257,22 @@ class AutoCaptureTuningTests(unittest.TestCase):
         self.assertEqual(kwargs["profile_name"] if "profile_name" in kwargs else app.set_performance_profile.call_args.args[0], "performance")
         self.assertTrue(kwargs["use_fused_kernel"])
         self.assertEqual(app.config.video.quality_preset, "performance")
+
+    @mock.patch("nvbroadcast.app.save_config")
+    def test_doczeus_mode_uses_ultra_quality_preset(self, _save):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.video.quality_preset = "quality"
+        app._video_effects = SimpleNamespace(quality="quality")
+        app._window = None
+        app.set_performance_profile = mock.Mock()
+
+        changed = NVBroadcastApp.apply_mode_key(app, "doczeus")
+
+        self.assertTrue(changed)
+        app.set_performance_profile.assert_called_once()
+        self.assertEqual(app._video_effects.quality, "ultra")
+        self.assertEqual(app.config.video.quality_preset, "ultra")
 
     @mock.patch("nvbroadcast.app.save_config")
     def test_restore_settings_normalizes_stale_named_mode_quality(self, save_config):

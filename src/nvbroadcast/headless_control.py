@@ -791,15 +791,20 @@ class HeadlessControlWindow(Gtk.ApplicationWindow):
             self._toast(f"Falha ao abrir update: {exc}")
 
     def _on_close_request(self, _window):
-        self.set_visible(False)
+        self._quit_and_stop_services()
         return True
 
     def _on_minimize(self, _button):
         self.set_visible(False)
 
     def _on_quit(self, _button):
+        self._quit_and_stop_services()
+
+    def _quit_and_stop_services(self) -> None:
         self._stop_audio_monitor()
         self._level_meter.stop()
+        for service in (VCAM_SERVICE, AUDIO_SERVICE):
+            _systemctl(["stop", service])
         app = self.get_application()
         if app is not None:
             app.quit()
@@ -862,6 +867,16 @@ class HeadlessControlApp(Adw.Application):
             self._tray_process = subprocess.Popen(args)
         except Exception as exc:
             print(f"[NV Broadcast Headless] Tray unavailable: {exc}", file=sys.stderr)
+
+    def do_shutdown(self):
+        if self._tray_process is not None and self._tray_process.poll() is None:
+            self._tray_process.terminate()
+            try:
+                self._tray_process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                self._tray_process.kill()
+                self._tray_process.wait(timeout=2)
+        Adw.Application.do_shutdown(self)
 
 
 def main() -> int:

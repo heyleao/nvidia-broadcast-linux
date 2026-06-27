@@ -149,6 +149,21 @@ class PackagingMetadataTests(unittest.TestCase):
         self.assertNotIn("openai-whisper", postinst)
         self.assertNotIn("install --no-deps faster-whisper ctranslate2", postinst)
 
+    def test_linux_packages_include_headless_entrypoints(self):
+        build_packages = (REPO_ROOT / "build-packages.sh").read_text()
+        rpm_spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
+        deb_prerm = (REPO_ROOT / "packaging" / "debian" / "prerm").read_text()
+
+        for content in (build_packages, rpm_spec):
+            self.assertIn("nvbroadcast-audio-headless", content)
+            self.assertIn("nvbroadcast-headless-control", content)
+            self.assertIn("nvbroadcast-headless", content)
+            self.assertIn("nvbroadcast-audio.service", content)
+            self.assertIn("com.doczeus.NVBroadcast.Headless.desktop", content)
+            self.assertIn("com.doczeus.NVBroadcast.Headless.svg", content)
+
+        self.assertIn("nvbroadcast-audio.service", deb_prerm)
+
     def test_rpm_postinst_installs_meeting_runtime(self):
         spec = (REPO_ROOT / "packaging" / "rpm" / "nvbroadcast.spec").read_text()
         postinst = spec.split("%post", 1)[1].split("%preun", 1)[0]

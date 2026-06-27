@@ -35,8 +35,20 @@ if [ -z "$VERSION" ]; then
     exit 1
 fi
 
-# Package revision is stable unless explicitly overridden by CI.
-REV="${PACKAGE_REV:-1}"
+# Package revision is stable unless explicitly overridden by CI. Fork release
+# tags can add a suffix, for example v1.1.11-headless.1 -> 1.1.11-headless.1.
+if [ -n "${PACKAGE_REV:-}" ]; then
+    REV="$PACKAGE_REV"
+else
+    TAG_REV=""
+    if command -v git &>/dev/null; then
+        TAG_NAME=$(git describe --tags --exact-match --match "v${VERSION}-*" 2>/dev/null || true)
+        if [ -n "$TAG_NAME" ]; then
+            TAG_REV="${TAG_NAME#v${VERSION}-}"
+        fi
+    fi
+    REV="${TAG_REV:-1}"
+fi
 
 echo "========================================="
 echo "  NV Broadcast Package Builder"
@@ -90,6 +102,17 @@ CTRL
     install -d "$PKG_DIR/usr/share/applications"
     cp data/com.doczeus.NVBroadcast.desktop "$PKG_DIR/usr/share/applications/"
     sed -i "s|Exec=nvbroadcast|Exec=/usr/bin/nvbroadcast|g" "$PKG_DIR/usr/share/applications/com.doczeus.NVBroadcast.desktop"
+    cat > "$PKG_DIR/usr/share/applications/com.doczeus.NVBroadcast.Headless.desktop" << 'DESKTOP'
+[Desktop Entry]
+Type=Application
+Name=NV Broadcast Headless Control
+Comment=Control NVIDIA Broadcast headless camera and microphone services
+Exec=/usr/bin/nvbroadcast-headless-control
+Icon=com.doczeus.NVBroadcast.Headless
+Terminal=false
+Categories=AudioVideo;
+StartupNotify=true
+DESKTOP
 
     # AppStream metadata
     install -d "$PKG_DIR/usr/share/metainfo"
@@ -98,6 +121,7 @@ CTRL
     # Icon
     install -d "$PKG_DIR/usr/share/icons/hicolor/scalable/apps"
     cp data/icons/com.doczeus.NVBroadcast.svg "$PKG_DIR/usr/share/icons/hicolor/scalable/apps/"
+    cp data/icons/com.doczeus.NVBroadcast.Headless.svg "$PKG_DIR/usr/share/icons/hicolor/scalable/apps/"
 
     # Launcher scripts
     install -d "$PKG_DIR/usr/bin"
@@ -113,6 +137,24 @@ exec /opt/nvbroadcast/.venv/bin/python -m nvbroadcast.vcam_service "$@"
 LAUNCHER
     chmod 755 "$PKG_DIR/usr/bin/nvbroadcast-vcam"
 
+    cat > "$PKG_DIR/usr/bin/nvbroadcast-audio-headless" << 'LAUNCHER'
+#!/bin/bash
+exec /opt/nvbroadcast/.venv/bin/python -m nvbroadcast.audio_service "$@"
+LAUNCHER
+    chmod 755 "$PKG_DIR/usr/bin/nvbroadcast-audio-headless"
+
+    cat > "$PKG_DIR/usr/bin/nvbroadcast-headless" << 'LAUNCHER'
+#!/bin/bash
+exec /opt/nvbroadcast/.venv/bin/python -m nvbroadcast.headless_cli "$@"
+LAUNCHER
+    chmod 755 "$PKG_DIR/usr/bin/nvbroadcast-headless"
+
+    cat > "$PKG_DIR/usr/bin/nvbroadcast-headless-control" << 'LAUNCHER'
+#!/bin/bash
+exec /opt/nvbroadcast/.venv/bin/python -m nvbroadcast.headless_control "$@"
+LAUNCHER
+    chmod 755 "$PKG_DIR/usr/bin/nvbroadcast-headless-control"
+
     # Systemd service
     install -d "$PKG_DIR/usr/lib/systemd/user"
     cat > "$PKG_DIR/usr/lib/systemd/user/nvbroadcast-vcam.service" << 'SVC'
@@ -122,9 +164,30 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/nvbroadcast-vcam
+ExecStart=/usr/bin/nvbroadcast-vcam --on-demand
 Restart=on-failure
 RestartSec=3
+TimeoutStopSec=5
+KillMode=mixed
+
+[Install]
+WantedBy=graphical-session.target
+SVC
+
+    cat > "$PKG_DIR/usr/lib/systemd/user/nvbroadcast-audio.service" << 'SVC'
+[Unit]
+Description=NVIDIA Broadcast Headless Virtual Microphone
+After=pipewire.service pipewire-pulse.service wireplumber.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/nvbroadcast-audio-headless
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=5
+KillMode=mixed
+Environment=GST_PLUGIN_PATH=/usr/lib64/gstreamer-1.0
 
 [Install]
 WantedBy=graphical-session.target

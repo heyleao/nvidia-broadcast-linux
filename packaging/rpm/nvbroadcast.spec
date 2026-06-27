@@ -62,6 +62,17 @@ cp -r configs %{buildroot}/opt/nvbroadcast/ 2>/dev/null || true
 # Desktop entry
 install -Dm 644 data/com.doczeus.NVBroadcast.desktop \
     %{buildroot}%{_datadir}/applications/com.doczeus.NVBroadcast.desktop
+cat > %{buildroot}%{_datadir}/applications/com.doczeus.NVBroadcast.Headless.desktop << 'EOF'
+[Desktop Entry]
+Type=Application
+Name=NV Broadcast Headless Control
+Comment=Control NVIDIA Broadcast headless camera and microphone services
+Exec=/usr/bin/nvbroadcast-headless-control
+Icon=com.doczeus.NVBroadcast.Headless
+Terminal=false
+Categories=AudioVideo;
+StartupNotify=true
+EOF
 
 # AppStream metadata
 install -Dm 644 data/com.doczeus.NVBroadcast.metainfo.xml \
@@ -70,6 +81,8 @@ install -Dm 644 data/com.doczeus.NVBroadcast.metainfo.xml \
 # Icon
 install -Dm 644 data/icons/com.doczeus.NVBroadcast.svg \
     %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/com.doczeus.NVBroadcast.svg
+install -Dm 644 data/icons/com.doczeus.NVBroadcast.Headless.svg \
+    %{buildroot}%{_datadir}/icons/hicolor/scalable/apps/com.doczeus.NVBroadcast.Headless.svg
 
 # Launchers
 install -d %{buildroot}%{_bindir}
@@ -85,6 +98,24 @@ exec /opt/nvbroadcast/.venv/bin/python -m nvbroadcast.vcam_service "$@"
 EOF
 chmod 755 %{buildroot}%{_bindir}/nvbroadcast-vcam
 
+cat > %{buildroot}%{_bindir}/nvbroadcast-audio-headless << 'EOF'
+#!/bin/bash
+exec /opt/nvbroadcast/.venv/bin/python -m nvbroadcast.audio_service "$@"
+EOF
+chmod 755 %{buildroot}%{_bindir}/nvbroadcast-audio-headless
+
+cat > %{buildroot}%{_bindir}/nvbroadcast-headless << 'EOF'
+#!/bin/bash
+exec /opt/nvbroadcast/.venv/bin/python -m nvbroadcast.headless_cli "$@"
+EOF
+chmod 755 %{buildroot}%{_bindir}/nvbroadcast-headless
+
+cat > %{buildroot}%{_bindir}/nvbroadcast-headless-control << 'EOF'
+#!/bin/bash
+exec /opt/nvbroadcast/.venv/bin/python -m nvbroadcast.headless_control "$@"
+EOF
+chmod 755 %{buildroot}%{_bindir}/nvbroadcast-headless-control
+
 # Systemd user service
 install -d %{buildroot}%{_userunitdir}
 cat > %{buildroot}%{_userunitdir}/nvbroadcast-vcam.service << 'EOF'
@@ -94,9 +125,30 @@ After=graphical-session.target
 
 [Service]
 Type=simple
-ExecStart=/usr/bin/nvbroadcast-vcam
+ExecStart=/usr/bin/nvbroadcast-vcam --on-demand
 Restart=on-failure
 RestartSec=3
+TimeoutStopSec=5
+KillMode=mixed
+
+[Install]
+WantedBy=graphical-session.target
+EOF
+
+cat > %{buildroot}%{_userunitdir}/nvbroadcast-audio.service << 'EOF'
+[Unit]
+Description=NVIDIA Broadcast Headless Virtual Microphone
+After=pipewire.service pipewire-pulse.service wireplumber.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/nvbroadcast-audio-headless
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=5
+KillMode=mixed
+Environment=GST_PLUGIN_PATH=/usr/lib64/gstreamer-1.0
 
 [Install]
 WantedBy=graphical-session.target
@@ -139,10 +191,16 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 /opt/nvbroadcast/
 %{_bindir}/nvbroadcast
 %{_bindir}/nvbroadcast-vcam
+%{_bindir}/nvbroadcast-audio-headless
+%{_bindir}/nvbroadcast-headless
+%{_bindir}/nvbroadcast-headless-control
 %{_datadir}/applications/com.doczeus.NVBroadcast.desktop
+%{_datadir}/applications/com.doczeus.NVBroadcast.Headless.desktop
 %{_datadir}/metainfo/com.doczeus.NVBroadcast.metainfo.xml
 %{_datadir}/icons/hicolor/scalable/apps/com.doczeus.NVBroadcast.svg
+%{_datadir}/icons/hicolor/scalable/apps/com.doczeus.NVBroadcast.Headless.svg
 %{_userunitdir}/nvbroadcast-vcam.service
+%{_userunitdir}/nvbroadcast-audio.service
 %config(noreplace) /etc/modprobe.d/nvbroadcast-v4l2loopback.conf
 %config(noreplace) /etc/modules-load.d/nvbroadcast-v4l2loopback.conf
 %license LICENSE

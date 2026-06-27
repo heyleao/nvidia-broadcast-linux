@@ -9,14 +9,23 @@ case "$1" in
         if systemctl --user is-active nvbroadcast-vcam.service &>/dev/null; then
             systemctl --user stop nvbroadcast-vcam.service 2>/dev/null || true
         fi
+        if systemctl --user is-active nvbroadcast-audio.service &>/dev/null; then
+            systemctl --user stop nvbroadcast-audio.service 2>/dev/null || true
+        fi
         ;;
     remove|purge)
         pkill -f "nvbroadcast" 2>/dev/null || true
         if systemctl --user is-active nvbroadcast-vcam.service &>/dev/null; then
             systemctl --user stop nvbroadcast-vcam.service 2>/dev/null || true
         fi
+        if systemctl --user is-active nvbroadcast-audio.service &>/dev/null; then
+            systemctl --user stop nvbroadcast-audio.service 2>/dev/null || true
+        fi
         if systemctl --user is-enabled nvbroadcast-vcam.service &>/dev/null; then
             systemctl --user disable nvbroadcast-vcam.service 2>/dev/null || true
+        fi
+        if systemctl --user is-enabled nvbroadcast-audio.service &>/dev/null; then
+            systemctl --user disable nvbroadcast-audio.service 2>/dev/null || true
         fi
         ;;
 esac

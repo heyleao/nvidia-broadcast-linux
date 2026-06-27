@@ -62,7 +62,7 @@ class AudioConfig:
     mic_device: str = ""
     speaker_device: str = ""
     noise_removal: bool = False
-    noise_intensity: float = 1.0
+    noise_intensity: float = 0.65
     speaker_denoise: bool = False
     voice_fx_enabled: bool = False
     voice_fx_use_gpu: bool = True

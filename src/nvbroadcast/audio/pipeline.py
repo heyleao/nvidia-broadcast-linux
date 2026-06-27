@@ -269,6 +269,7 @@ class AudioPipeline:
                 self._sample_rate,
                 gate_reference=audio,
             )
+        processed = self._limit_output_audio(processed)
 
         if self._uses_loopback_virtual_mic:
             output_state = self._enqueue_output_audio(processed)
@@ -321,6 +322,23 @@ class AudioPipeline:
         new_buf.duration = duration
         self._output_frames_pushed += frame_count
         return self._appsrc.emit("push-buffer", new_buf)
+
+    @staticmethod
+    def _limit_output_audio(processed: np.ndarray) -> np.ndarray:
+        """Keep virtual mic output inside safe float32 headroom."""
+        if processed.size == 0:
+            return processed.astype(np.float32, copy=False)
+
+        limited = np.nan_to_num(
+            processed.astype(np.float32, copy=False),
+            nan=0.0,
+            posinf=0.98,
+            neginf=-0.98,
+        )
+        peak = float(np.max(np.abs(limited)))
+        if peak > 0.98:
+            limited = limited * (0.98 / peak)
+        return limited.astype(np.float32, copy=False)
 
     def _enqueue_output_audio(self, processed: np.ndarray) -> str:
         """Queue processed audio for the dedicated output worker."""

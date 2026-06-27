@@ -109,6 +109,15 @@ class AudioPipelineLifecycleTests(unittest.TestCase):
             Gst.util_uint64_scale(len(audio), Gst.SECOND, pipeline._sample_rate),
         )
 
+    def test_output_limiter_protects_virtual_mic_from_clipping(self):
+        audio = np.array([0.0, 0.5, 1.5, -2.0, np.nan], dtype=np.float32)
+
+        limited = AudioPipeline._limit_output_audio(audio)
+
+        self.assertEqual(limited.dtype, np.float32)
+        self.assertLessEqual(float(np.max(np.abs(limited))), 0.981)
+        self.assertEqual(float(limited[-1]), 0.0)
+
     def test_start_uses_helper_process_when_enabled(self):
         pipeline = AudioPipeline()
         pipeline._uses_loopback_virtual_mic = True

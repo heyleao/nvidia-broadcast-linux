@@ -27,6 +27,10 @@ class AudioEffects:
         self._state = None  # ctypes pointer to RNNoise state
         self._enabled = False
         self._intensity = 1.0
+        self._pending_input = np.empty(0, dtype=np.float32)
+        self._processed_output = np.empty(0, dtype=np.float32)
+        self._speech_protection = 0.65
+        self._noise_floor_boost = 0.2
 
     @property
     def available(self) -> bool:
@@ -38,6 +42,8 @@ class AudioEffects:
 
     @enabled.setter
     def enabled(self, value: bool):
+        if self._enabled != value:
+            self._reset_frame_buffers()
         self._enabled = value
         if value and not self._initialized:
             self.initialize()
@@ -81,43 +87,90 @@ class AudioEffects:
             return audio_data
 
         try:
-            output = np.zeros_like(audio_data)
-            total_samples = len(audio_data)
-            fs = self._frame_size  # 480
+            clean_input = np.nan_to_num(
+                audio_data.astype(np.float32, copy=False),
+                nan=0.0,
+                posinf=0.98,
+                neginf=-0.98,
+            )
+            peak = float(np.max(np.abs(clean_input))) if clean_input.size else 0.0
+            if peak > 0.98:
+                clean_input = clean_input * (0.98 / peak)
 
-            for i in range(0, total_samples - fs + 1, fs):
-                frame = audio_data[i:i + fs]
+            output = np.zeros_like(clean_input)
+            total_samples = len(clean_input)
+            fs = self._frame_size  # 480
+            if self._pending_input.size:
+                process_input = np.concatenate((self._pending_input, clean_input))
+            else:
+                process_input = clean_input
+            process_samples = (len(process_input) // fs) * fs
+            processed_frames = np.empty(0, dtype=np.float32)
+
+            if process_samples > 0:
+                processed_frames = np.zeros(process_samples, dtype=np.float32)
+
+            for i in range(0, process_samples, fs):
+                frame = process_input[i:i + fs]
 
                 # Convert float32 -> int16 for RNNoise
                 frame_int16 = (frame * 32767).clip(-32768, 32767).astype(np.int16)
 
                 # Process through RNNoise
-                denoised_int16, _vad_prob = self._rnnoise.process_mono_frame(
+                denoised_int16, vad_prob = self._rnnoise.process_mono_frame(
                     self._state, frame_int16
                 )
 
                 # Convert back to float32
                 denoised = denoised_int16.astype(np.float32) / 32767.0
 
-                # Blend based on intensity (1.0 = full denoise, 0.0 = no effect)
-                if self._intensity < 1.0:
-                    denoised = self._intensity * denoised + (1 - self._intensity) * frame
+                mix = self._adaptive_mix(vad_prob)
+                if mix < 1.0:
+                    denoised = mix * denoised + (1 - mix) * frame
 
-                output[i:i + fs] = denoised
+                processed_frames[i:i + fs] = np.clip(denoised, -0.98, 0.98)
 
-            # Pass through remaining samples
-            remainder = total_samples % fs
-            if remainder > 0:
-                output[total_samples - remainder:] = audio_data[total_samples - remainder:]
+            self._pending_input = process_input[process_samples:].copy()
+            if processed_frames.size:
+                if self._processed_output.size:
+                    self._processed_output = np.concatenate((self._processed_output, processed_frames))
+                else:
+                    self._processed_output = processed_frames
 
-            return output
+            available = min(total_samples, len(self._processed_output))
+            if available > 0:
+                output[:available] = self._processed_output[:available]
+                self._processed_output = self._processed_output[available:].copy()
+
+            return output.astype(np.float32, copy=False)
 
         except Exception as e:
             print(f"[NVIDIA Broadcast] Audio processing error: {e}")
             return audio_data
 
+    def _adaptive_mix(self, vad_prob: float) -> float:
+        """Scale denoise amount by RNNoise speech probability.
+
+        A linear wet/dry blend makes the useful range very narrow: enough
+        denoise for keyboard noise can over-process speech. RNNoise exposes a
+        VAD score, so keep speech drier and pauses/noise wetter.
+        """
+        try:
+            vad = max(0.0, min(1.0, float(vad_prob)))
+        except (TypeError, ValueError):
+            vad = 0.0
+
+        speech_preserve = self._speech_protection * vad
+        noise_boost = self._noise_floor_boost * (1.0 - vad)
+        return max(0.0, min(1.0, self._intensity * (1.0 - speech_preserve + noise_boost)))
+
+    def _reset_frame_buffers(self) -> None:
+        self._pending_input = np.empty(0, dtype=np.float32)
+        self._processed_output = np.empty(0, dtype=np.float32)
+
     def cleanup(self):
         """Release resources."""
+        self._reset_frame_buffers()
         if self._state is not None:
             try:
                 self._rnnoise.destroy(self._state)

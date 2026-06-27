@@ -24,6 +24,8 @@ from nvbroadcast.core.config import (
 )
 from nvbroadcast.core.constants import CONFIG_FILE, DEFAULT_FPS, DEFAULT_HEIGHT, DEFAULT_WIDTH
 from nvbroadcast.core.resources import HEADLESS_APP_ICON, find_headless_app_icon
+from nvbroadcast.audio.devices import list_microphones, list_speakers
+from nvbroadcast.audio.voice_fx import VOICE_PRESETS, get_voice_fx_preset, normalize_voice_fx_preset_name
 from nvbroadcast.vcam_service import MODE_MAP
 
 
@@ -42,6 +44,14 @@ ICON_DIR = Path.home() / ".local" / "share" / "icons" / "hicolor" / "scalable" /
 HEADLESS_ICON = ICON_DIR / HEADLESS_APP_ICON
 
 SERVICE_ENVIRONMENT = "Environment=GST_PLUGIN_PATH=/usr/lib64/gstreamer-1.0"
+VOICE_PARAM_RANGES = {
+    "voice_bass": (-1.0, 1.0, "voice_fx_bass_boost"),
+    "voice_treble": (-1.0, 1.0, "voice_fx_treble"),
+    "voice_warmth": (0.0, 1.0, "voice_fx_warmth"),
+    "voice_compression": (0.0, 1.0, "voice_fx_compression"),
+    "voice_gate": (0.0, 1.0, "voice_fx_gate_threshold"),
+    "voice_gain": (-1.0, 1.0, "voice_fx_gain"),
+}
 
 
 def _run(command: list[str], *, check: bool = False) -> subprocess.CompletedProcess[str]:
@@ -52,6 +62,55 @@ def _print_result(label: str, ok: bool, detail: str = "") -> None:
     status = "ok" if ok else "missing"
     suffix = f" - {detail}" if detail else ""
     print(f"{label}: {status}{suffix}")
+
+
+def _clamp(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(maximum, float(value)))
+
+
+def _voice_settings_summary(config) -> str:
+    a = config.audio
+    return (
+        f"preset={a.voice_fx_preset}, gpu={a.voice_fx_use_gpu}, "
+        f"bass={a.voice_fx_bass_boost:.2f}, treble={a.voice_fx_treble:.2f}, "
+        f"warmth={a.voice_fx_warmth:.2f}, compression={a.voice_fx_compression:.2f}, "
+        f"gate={a.voice_fx_gate_threshold:.2f}, gain={a.voice_fx_gain:.2f}"
+    )
+
+
+def _apply_voice_preset(config, preset_name: str) -> None:
+    normalized = normalize_voice_fx_preset_name(preset_name)
+    preset = get_voice_fx_preset(normalized)
+    if preset is None:
+        valid = ", ".join(sorted(VOICE_PRESETS))
+        raise SystemExit(f"Invalid voice preset '{preset_name}'. Valid presets: {valid}")
+    config.audio.voice_fx_preset = normalized
+    config.audio.voice_fx_bass_boost = preset.bass_boost
+    config.audio.voice_fx_treble = preset.treble
+    config.audio.voice_fx_warmth = preset.warmth
+    config.audio.voice_fx_compression = preset.compression
+    config.audio.voice_fx_gate_threshold = preset.gate_threshold
+    config.audio.voice_fx_gain = preset.gain
+
+
+def _print_microphones() -> list[dict[str, str]]:
+    microphones = list_microphones()
+    print("Available microphones")
+    for index, mic in enumerate(microphones, start=1):
+        device = mic.get("device", "")
+        device_label = device or "(system default)"
+        print(f"{index}. {mic.get('name', 'Unknown')} [{device_label}]")
+    return microphones
+
+
+def _print_speakers() -> list[dict[str, str]]:
+    speakers = list_speakers()
+    print("Available speakers")
+    for index, speaker in enumerate(speakers, start=1):
+        device = speaker.get("device", "")
+        device_label = device or "(system default)"
+        print(f"{index}. {speaker.get('name', 'Unknown')} [{device_label}]")
+    return speakers
 
 
 def _python_bin() -> str:
@@ -109,8 +168,11 @@ def _show_config() -> None:
     print(f"background_mode: {config.video.background_mode}")
     print(f"mirror: {config.video.mirror}")
     print(f"mic: {config.audio.mic_device or '(default)'}")
+    print(f"speaker: {config.audio.speaker_device or '(default)'}")
     print(f"noise_removal: {config.audio.noise_removal}")
-    print(f"voice_fx: {config.audio.voice_fx_enabled}")
+    print(f"noise_intensity: {int(round(config.audio.noise_intensity * 100))}%")
+    print(f"voice_fx_enabled: {config.audio.voice_fx_enabled}")
+    print(f"voice_fx: {_voice_settings_summary(config)}")
 
 
 def _apply_mode(config, mode: str) -> None:
@@ -130,6 +192,13 @@ def phase2_config(args: argparse.Namespace) -> int:
     """Show or update saved headless configuration."""
     config = load_config()
     changed = False
+
+    if args.list_mics:
+        _print_microphones()
+        return 0
+    if args.list_speakers:
+        _print_speakers()
+        return 0
 
     if args.show:
         _show_config()
@@ -172,12 +241,47 @@ def phase2_config(args: argparse.Namespace) -> int:
     if args.mic is not None:
         config.audio.mic_device = args.mic
         changed = True
+    if args.mic_index is not None:
+        microphones = list_microphones()
+        if args.mic_index < 1 or args.mic_index > len(microphones):
+            raise SystemExit(
+                f"Invalid microphone index {args.mic_index}. "
+                f"Use --list-mics to see valid values."
+            )
+        config.audio.mic_device = microphones[args.mic_index - 1].get("device", "")
+        changed = True
+    if args.speaker is not None:
+        config.audio.speaker_device = args.speaker
+        changed = True
+    if args.speaker_index is not None:
+        speakers = list_speakers()
+        if args.speaker_index < 1 or args.speaker_index > len(speakers):
+            raise SystemExit(
+                f"Invalid speaker index {args.speaker_index}. "
+                f"Use --list-speakers to see valid values."
+            )
+        config.audio.speaker_device = speakers[args.speaker_index - 1].get("device", "")
+        changed = True
     if args.noise is not None:
         config.audio.noise_removal = args.noise == "on"
+        changed = True
+    if args.noise_intensity is not None:
+        config.audio.noise_intensity = _clamp(args.noise_intensity, 0.0, 1.0)
         changed = True
     if args.voice_fx is not None:
         config.audio.voice_fx_enabled = args.voice_fx == "on"
         changed = True
+    if args.voice_preset:
+        _apply_voice_preset(config, args.voice_preset)
+        changed = True
+    if args.voice_gpu is not None:
+        config.audio.voice_fx_use_gpu = args.voice_gpu == "on"
+        changed = True
+    for arg_name, (minimum, maximum, config_name) in VOICE_PARAM_RANGES.items():
+        value = getattr(args, arg_name, None)
+        if value is not None:
+            setattr(config.audio, config_name, _clamp(value, minimum, maximum))
+            changed = True
 
     if not changed:
         _show_config()
@@ -349,9 +453,23 @@ def build_parser() -> argparse.ArgumentParser:
     p2.add_argument("--background", choices=["on", "off"], help="enable background processing")
     p2.add_argument("--background-mode", choices=["blur", "replace", "remove"], help="background mode")
     p2.add_argument("--mirror", choices=["on", "off"], help="mirror camera output")
+    p2.add_argument("--list-mics", action="store_true", help="list available source microphones")
     p2.add_argument("--mic", help="source microphone device; empty string uses system default")
+    p2.add_argument("--mic-index", type=int, help="select a microphone from --list-mics, starting at 1")
+    p2.add_argument("--list-speakers", action="store_true", help="list available speaker outputs")
+    p2.add_argument("--speaker", help="speaker output device; empty string uses system default")
+    p2.add_argument("--speaker-index", type=int, help="select a speaker from --list-speakers, starting at 1")
     p2.add_argument("--noise", choices=["on", "off"], help="enable microphone noise removal")
-    p2.add_argument("--voice-fx", choices=["on", "off"], help="enable voice effects")
+    p2.add_argument("--noise-intensity", type=float, help="noise removal intensity, 0.0 to 1.0")
+    p2.add_argument("--voice-fx", choices=["on", "off"], help="enable microphone voice processing")
+    p2.add_argument("--voice-preset", choices=sorted(VOICE_PRESETS), help="voice preset")
+    p2.add_argument("--voice-gpu", choices=["on", "off"], help="use GPU for voice processing when available")
+    p2.add_argument("--voice-bass", type=float, help="bass cut/boost, -1.0 to 1.0")
+    p2.add_argument("--voice-treble", type=float, help="treble cut/boost, -1.0 to 1.0")
+    p2.add_argument("--voice-warmth", type=float, help="warmth/saturation, 0.0 to 1.0")
+    p2.add_argument("--voice-compression", type=float, help="dynamic compression, 0.0 to 1.0")
+    p2.add_argument("--voice-gate", type=float, help="noise gate threshold, 0.0 to 1.0")
+    p2.add_argument("--voice-gain", type=float, help="output gain, -1.0 to 1.0")
     p2.set_defaults(func=phase2_config)
 
     p3 = sub.add_parser("phase3", help="install: install/remove user services")

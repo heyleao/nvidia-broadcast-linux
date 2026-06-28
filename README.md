@@ -5,7 +5,7 @@
 <h1 align="center">NV Broadcast</h1>
 
 <p align="center">
-  <strong>by DocZeus | AI Powered</strong>
+  <strong>by DocZeus</strong>
 </p>
 
 <p align="center">
@@ -77,7 +77,7 @@ See [Headless Camera and Microphone Services](docs/HEADLESS_SERVICES.md).
 - **Meeting Transcription Install Fixed** — The app now installs `faster-whisper` safely without skipping the support packages required for local transcription
 - **Package Installers Fixed Too** — Debian, RPM, and macOS package install paths now use the same corrected meeting runtime recipe as the in-app installer
 - **Clearer Recovery Steps** — Missing-transcription messages now show the complete command instead of only `pip install faster-whisper`
-- **No OpenAI Whisper Regression** — `openai-whisper` remains optional and guarded on newer Python versions; the default packaged path stays on the lighter `faster-whisper` runtime
+- **No Whisper Regression** — `openai-whisper` remains optional and guarded on newer Python versions; the default packaged path stays on the lighter `faster-whisper` runtime
 
 > If you are still on `v1.1.8` or older, update to `v1.1.9`. This is the recommended hotfix for meeting transcription dependency reliability.
 
@@ -169,17 +169,17 @@ See [Headless Camera and Microphone Services](docs/HEADLESS_SERVICES.md).
 - **Background Runtime Installs** — Optional CUDA, TensorRT, and meeting runtimes install in the background with progress
 - **Improved Setup Guidance** — First-run flow explains modes, downloads, and skip/install choices more clearly
 
-### v1.0.0 — AI Release
+### v1.0.0 — Meeting Release
 
-- **AI Meeting Transcription** — Local Whisper speech-to-text (tiny/base/small/medium models, GPU-accelerated)
-- **AI Meeting Summarizer** — Extracts action items, questions, key points from transcripts (fully local)
+- **Meeting Transcription** — Local Whisper speech-to-text (tiny/base/small/medium models, GPU-accelerated)
+- **Meeting Summarizer** — Extracts action items, questions, key points from transcripts (fully local)
 - **Voice Effects** — Bass boost, treble, warmth, compression, noise gate, gain (GPU + CPU)
 - **6 Voice Presets** — Natural, Radio, Podcast, Deep Voice, Bright, Studio
 - **Microphone Selection** — Full PipeWire/PulseAudio device enumeration
 - **Speaker Detection** — All output devices via PipeWire
 - **Audio Level Monitor** — Real-time VU meter with peak hold
 - **Mic Test** — Record 30s / 45s / 60s and play back to test your setup
-- **Meeting Mode** — Combined video+audio recording with live transcription and AI summary
+- **Meeting Mode** — Combined video+audio recording with live transcription and local summary
 - **Recording Fix** — MP4 now includes audio track (NVENC video + AAC audio)
 - **Voice FX GPU Acceleration** — CuPy CUDA for warmth/gate/gain, scipy for filters (2.8ms/chunk)
 
@@ -244,7 +244,7 @@ See [Headless Camera and Microphone Services](docs/HEADLESS_SERVICES.md).
 <td width="50%">
 
 ### Camera Effects
-- **Background Blur** — AI-powered, person stays crystal sharp
+- **Background Blur** — GPU-accelerated, person stays crystal sharp
 - **Background Replace** — Any image via native file picker
 - **Green Screen** — Solid green for OBS chroma key
 - **Auto Frame** — Face tracking with smooth zoom/pan
@@ -269,15 +269,15 @@ See [Headless Camera and Microphone Services](docs/HEADLESS_SERVICES.md).
 - **Speaker Detection** — All output devices via PipeWire
 - **Audio Level Monitor** — Real-time VU meter with peak hold
 - **Mic Test** — Record 30s / 45s / 60s and play back to test your setup
-- **AI Meeting Transcription** — Local Whisper speech-to-text (GPU-accelerated)
-- **AI Meeting Summarizer** — Action items, questions, key points (fully local)
-- **Meeting Mode** — Video+audio recording with live transcription and AI summary
+- **Meeting Transcription** — Local Whisper speech-to-text (GPU-accelerated)
+- **Meeting Summarizer** — Action items, questions, key points (fully local)
+- **Meeting Mode** — Video+audio recording with live transcription and local summary
 
 ### System Integration
 - **Virtual Camera** — Works in Chrome, Firefox, Zoom, Discord, OBS
 - **Auto-Start** — Launches on login, runs in background
 - **Setup Wizard** — Auto-detects system, configures optimally
-- **Multi-GPU** — Select which GPU runs AI effects
+- **Multi-GPU** — Select which GPU runs video effects
 - **Multi-Distro** — Ubuntu, Fedora, Arch, openSUSE, and more
 - **Resolution/FPS** — 360p-4K, 15-60fps, auto-detected from camera
 
@@ -328,7 +328,7 @@ See [Headless Camera and Microphone Services](docs/HEADLESS_SERVICES.md).
                             │   (never blocks capture)      │         │ Discord/Meet  │
                             │                               │         └───────────────┘
                             │  ┌─────────────────────────┐  │
-                            │  │   AI Segmentation        │  │
+                            │  │   Segmentation        │  │
                             │  │                          │  │
                             │  │  Pre-downsample to 720p  │  │
                             │  │  (or 480/360 for Zeus/   │  │
@@ -374,7 +374,7 @@ See [Headless Camera and Microphone Services](docs/HEADLESS_SERVICES.md).
                             └──────────────────────────┘
 
   ┌───────────┐      ┌─────────────────────────────────┐      ┌──────────────┐
-  │    Mic    │─────▶│     RNNoise AI Denoise          │─────▶│ Virtual Mic  │
+  │    Mic    │─────▶│     RNNoise Denoise          │─────▶│ Virtual Mic  │
   │           │      │     (48kHz, 10ms frames)        │      │  (PipeWire)  │
   └───────────┘      └─────────────────────────────────┘      └──────────────┘
 ```
@@ -403,7 +403,7 @@ When Edge Refine is toggled ON (Zeus/Killer modes):
 
 ---
 
-## AI Models
+## Processing Models
 
 | Model | Segments | Speed (RTX 5060) | VRAM | License | Auto-Download |
 |-------|----------|-----------------|------|---------|---------------|
@@ -682,7 +682,7 @@ nvidia-broadcast-linux/
 │       ├── device_selector.py   # Dropdown selector (single-connect fix)
 │       ├── video_preview.py     # Live video preview
 │       └── style.css            # App styling with Adwaita/system theme integration
-├── models/                      # AI models (auto-downloaded)
+├── models/                      # processing models (auto-downloaded)
 │   ├── rvm_mobilenetv3_fp32.onnx
 │   ├── rvm_resnet50_fp32.onnx
 │   ├── rvm_mobilenetv3_fp16.onnx   # Lightweight refiner model
@@ -731,7 +731,7 @@ Found a bug? [Open an issue](https://github.com/Hkshoonya/nvidia-broadcast-linux
 - **Speaker diarization** — separate “me” vs “remote speaker” in live meeting transcripts and saved notes
 - **Local live captions** — optional on-screen captions and confidence-aware subtitle output for streams and calls
 - **Multi-person framing** — presenter mode for interviews, podcasts, and side-by-side calls
-- **AI meeting memory** — on-device semantic search across prior meetings, summaries, action items, and decisions
+- **Meeting memory** — on-device semantic search across prior meetings, summaries, action items, and decisions
 - **Scene-aware relighting** — stronger face light that reacts to background direction, exposure, and skin tone without flattening the face
 - **Quality advisor** — explain exactly which effect, resolution, or backend is costing FPS on the current hardware
 

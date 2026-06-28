@@ -112,7 +112,7 @@ draw.text((x_text + nv_w, y_base), "Broadcast", fill=(240, 240, 240, 255), font=
 y_tag = y_base + 105
 draw.text(
     (x_text + 4, y_tag),
-    "AI-Powered Virtual Camera for Linux",
+    "GPU-Accelerated Virtual Camera for Linux",
     fill=(180, 180, 180, 255),
     font=sub_font,
 )
@@ -128,7 +128,7 @@ features = [
     "Eye Contact",
     "Face Relight",
     "Voice Studio",
-    "AI Transcription",
+    "Local Transcription",
 ]
 
 y_feat = y_div + 20

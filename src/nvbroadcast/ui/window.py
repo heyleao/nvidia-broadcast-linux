@@ -1,7 +1,7 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
 # Licensed under GPL-3.0 - see LICENSE file
-# Original author: doczeus | AI Powered
+# Original author: doczeus
 #
 """Main window - NVIDIA Broadcast layout."""
 
@@ -995,7 +995,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
 
     # (profile, compositing, use_tensorrt, use_fused_kernel, use_nvdec)
     _MODE_MAP = {
-        "doczeus":      ("max_quality", "cupy", True,  False, False),
+        "doczeus":      ("balanced",    "cupy", True,  False, False),
         "cuda_max":     ("max_quality", "cupy", False, False, False),
         "cuda_balanced": ("balanced",   "cupy", False, False, False),
         "cuda_perf":    ("performance", "cupy", False, True,  False),
@@ -1010,12 +1010,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
     def _mode_status_message(mode_key: str) -> str:
         messages = {
             "auto": "Auto: adapt to the current device and step down when live FPS stays low",
-            "doczeus": "DocZeus: max quality TensorRT inference",
+            "doczeus": "DocZeus: stable TensorRT inference",
             "cuda_max": "CUDA High Quality: strong quality without fused compositing",
             "cuda_balanced": "CUDA Balanced: good quality with lighter GPU load",
             "cuda_perf": "CUDA Fast: fused compositor with fresher 480p replace matting",
             "zeus": "Zeus: TensorRT balanced mode with edge refine",
-            "killer": "Killer: TensorRT performance mode, softer edges under motion",
+            "killer": "Killer: TensorRT performance mode with fused CUDA and NVDEC fallback",
             "cpu_quality": "CPU High Quality: most compatible, highest CPU cost",
             "cpu_light": "CPU Fast: reduced CPU cost with lower quality",
             "cpu_low": "CPU Low End: fallback mode for weaker systems",
@@ -1034,7 +1034,7 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             ("cuda_max", "CUDA - High Quality"),
             ("cuda_balanced", "CUDA - Balanced"),
             ("cuda_perf", "CUDA - Fast"),
-            ("doczeus", "DocZeus - TensorRT Max Quality"),
+            ("doczeus", "DocZeus - TensorRT Stable"),
             ("zeus", "TensorRT - Zeus Balanced"),
             ("killer", "TensorRT - Killer Fast"),
             ("cpu_quality", "CPU - High Quality"),
@@ -1981,12 +1981,12 @@ class NVBroadcastWindow(Adw.ApplicationWindow):
             developers=["doczeus https://github.com/Hkshoonya"],
             comments=(
                 "Unofficial NVIDIA Broadcast for Linux and other OS.\n\n"
-                "AI-powered virtual camera with background removal, blur, "
+                "GPU-accelerated virtual camera with background removal, blur, "
                 "replacement, auto-framing, video enhancement, and noise "
                 "cancellation using GPU-accelerated deep learning.\n\n"
                 "9 processing modes including Killer, Zeus, and DocZeus "
                 "with fused CUDA kernels and edge refinement.\n\n"
-                "Created by doczeus | AI Powered"
+                "Created by doczeus"
             ),
         )
         if hasattr(about, "add_credit_section"):

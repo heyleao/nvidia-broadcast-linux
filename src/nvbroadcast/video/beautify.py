@@ -1,7 +1,7 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
 # Licensed under GPL-3.0 - see LICENSE file
-# Original author: doczeus | AI Powered
+# Original author: doczeus
 #
 """Face beautification — skin smoothing, denoising, edge darkening, enhancement.
 

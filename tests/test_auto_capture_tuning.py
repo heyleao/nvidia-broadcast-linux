@@ -106,6 +106,17 @@ class AutoCaptureTuningTests(unittest.TestCase):
 
         self.assertFalse(app._compute_inline_inference())
 
+    def test_tensorrt_performance_uses_inline_alpha(self):
+        app = NVBroadcastApp.__new__(NVBroadcastApp)
+        app.config = AppConfig()
+        app.config.performance_profile = "performance"
+        app.config.compositing = "cupy"
+        app.config.use_tensorrt = True
+        app.config.use_fused_kernel = True
+        app._video_effects = SimpleNamespace(enabled=True, mode="remove")
+
+        self.assertTrue(app._compute_inline_inference())
+
     def test_cpu_focus_auto_modes_avoid_gpu_ladder(self):
         app = NVBroadcastApp.__new__(NVBroadcastApp)
         app.config = AppConfig()
@@ -237,6 +248,11 @@ class AutoCaptureTuningTests(unittest.TestCase):
 
         self.assertTrue(changed)
         app.set_performance_profile.assert_called_once()
+        _, kwargs = app.set_performance_profile.call_args
+        self.assertEqual(kwargs["mode_key"], "killer")
+        self.assertTrue(kwargs["use_tensorrt"])
+        self.assertTrue(kwargs["use_fused_kernel"])
+        self.assertTrue(kwargs["use_nvdec"])
         self.assertEqual(app._video_effects.quality, "performance")
         self.assertEqual(app.config.video.quality_preset, "performance")
 
@@ -259,7 +275,7 @@ class AutoCaptureTuningTests(unittest.TestCase):
         self.assertEqual(app.config.video.quality_preset, "performance")
 
     @mock.patch("nvbroadcast.app.save_config")
-    def test_doczeus_mode_uses_ultra_quality_preset(self, _save):
+    def test_doczeus_mode_uses_stable_tensorrt_preset(self, _save):
         app = NVBroadcastApp.__new__(NVBroadcastApp)
         app.config = AppConfig()
         app.config.video.quality_preset = "quality"
@@ -271,8 +287,11 @@ class AutoCaptureTuningTests(unittest.TestCase):
 
         self.assertTrue(changed)
         app.set_performance_profile.assert_called_once()
-        self.assertEqual(app._video_effects.quality, "ultra")
-        self.assertEqual(app.config.video.quality_preset, "ultra")
+        _, kwargs = app.set_performance_profile.call_args
+        self.assertEqual(kwargs["mode_key"], "doczeus")
+        self.assertTrue(kwargs["use_tensorrt"])
+        self.assertEqual(app._video_effects.quality, "balanced")
+        self.assertEqual(app.config.video.quality_preset, "balanced")
 
     @mock.patch("nvbroadcast.app.save_config")
     def test_restore_settings_normalizes_stale_named_mode_quality(self, save_config):

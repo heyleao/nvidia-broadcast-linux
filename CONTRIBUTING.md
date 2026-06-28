@@ -41,7 +41,7 @@ Thank you for your interest in contributing! This project was built for the Linu
   # NVIDIA Broadcast for Linux
   # Copyright (c) 2026 doczeus (https://github.com/doczeus)
   # Licensed under GPL-3.0 - see LICENSE file
-  # Original author: doczeus | AI Powered
+  # Original author: doczeus
   #
   ```
 - Keep it simple — don't over-engineer

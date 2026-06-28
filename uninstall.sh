@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # NVIDIA Broadcast for Linux - Uninstaller
-# by doczeus | AI Powered
+# by doczeus
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -8,7 +8,7 @@ INSTALL_PREFIX="${HOME}/.local"
 
 echo "========================================="
 echo "  NVIDIA Broadcast for Linux - Uninstall"
-echo "  by doczeus | AI Powered"
+echo "  by doczeus"
 echo "========================================="
 echo ""
 

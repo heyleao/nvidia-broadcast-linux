@@ -17,7 +17,7 @@ NC='\033[0m'
 echo -e "${GREEN}"
 echo "╔══════════════════════════════════════════╗"
 echo "║   NV Broadcast — macOS Installer         ║"
-echo "║   by doczeus | AI Powered                ║"
+echo "║   by doczeus                ║"
 echo "╚══════════════════════════════════════════╝"
 echo -e "${NC}"
 

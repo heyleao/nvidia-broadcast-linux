@@ -78,7 +78,7 @@ Depends: python3 (>= 3.11), python3-venv, python3-gi, python3-gi-cairo, gir1.2-g
 Recommends: gir1.2-ayatanaappindicator3-0.1
 Homepage: https://github.com/Hkshoonya/nvidia-broadcast-linux
 Description: NV Broadcast - Unofficial NVIDIA Broadcast for Linux
- AI-powered virtual camera with background removal, blur, replacement,
+ GPU-accelerated virtual camera with background removal, blur, replacement,
  video enhancement, auto-framing, and noise cancellation.
  9 processing modes including Killer, Zeus, and DocZeus with fused CUDA.
  Requires NVIDIA GPU with driver 525+ for GPU acceleration.

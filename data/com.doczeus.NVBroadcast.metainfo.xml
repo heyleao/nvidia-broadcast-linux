@@ -2,7 +2,7 @@
 <component type="desktop-application">
   <id>com.doczeus.NVBroadcast</id>
   <name>NV Broadcast</name>
-  <summary>AI-powered virtual camera with background removal and meeting transcription</summary>
+  <summary>GPU-accelerated virtual camera with background removal and meeting transcription</summary>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
   <developer id="com.doczeus">
@@ -11,18 +11,18 @@
 
   <description>
     <p>
-      NV Broadcast brings NVIDIA Broadcast features to Linux. AI-powered virtual
+      NV Broadcast brings NVIDIA Broadcast features to Linux. GPU-accelerated virtual
       camera with background removal, eye contact correction, face relighting,
       voice studio, and meeting transcription — all running locally on your GPU.
     </p>
     <p>Features:</p>
     <ul>
-      <li>Background blur, replace, or remove with 3 AI models</li>
+      <li>Background blur, replace, or remove with 3 processing models</li>
       <li>Eye contact correction — look at camera while reading your screen</li>
       <li>Face relighting — fill light guided by the scene</li>
       <li>Voice studio — bass, treble, warmth, compression with GPU acceleration</li>
-      <li>AI meeting transcription — local Whisper, no cloud</li>
-      <li>AI meeting summarizer — action items, questions, key points</li>
+      <li>Meeting transcription — local Whisper, no cloud</li>
+      <li>Meeting summarizer — action items, questions, key points</li>
       <li>Recording with NVENC hardware encoding to MP4</li>
       <li>9 processing modes including Killer, Zeus, DocZeus, CUDA, and CPU fallback</li>
       <li>5 built-in profiles: Meeting, Streaming, Presentation, Gaming, Clean</li>
@@ -219,10 +219,10 @@
     </release>
     <release version="1.0.0" date="2026-03-24">
       <description>
-        <p>AI Release — v1.0.0</p>
+        <p>Meeting Release — v1.0.0</p>
         <ul>
-          <li>AI meeting transcription (local Whisper, GPU-accelerated)</li>
-          <li>AI meeting summarizer (action items, key points)</li>
+          <li>Meeting transcription (local Whisper, GPU-accelerated)</li>
+          <li>Meeting summarizer (action items, key points)</li>
           <li>Voice studio with 6 presets and GPU acceleration</li>
           <li>Microphone and speaker selection</li>
           <li>Audio VU meter and mic test</li>

@@ -1,7 +1,7 @@
 # NV Broadcast - Unofficial NVIDIA Broadcast for Linux and other OS
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
 # Licensed under GPL-3.0 - see LICENSE file
-# Original author: doczeus | AI Powered
+# Original author: doczeus
 #
 """System tray icon for NV Broadcast.
 
@@ -35,13 +35,13 @@ class TrayIcon:
 
         try:
             gi.require_version('AyatanaAppIndicator3', '0.1')
-            from gi.repository import AyatanaAppIndicator3 as AI
-            self._indicator = AI.Indicator.new(
+            from gi.repository import AyatanaAppIndicator3 as AppIndicator
+            self._indicator = AppIndicator.Indicator.new(
                 "nvbroadcast",
                 str(icon_path),
-                AI.IndicatorCategory.APPLICATION_STATUS,
+                AppIndicator.IndicatorCategory.APPLICATION_STATUS,
             )
-            self._indicator.set_status(AI.IndicatorStatus.ACTIVE)
+            self._indicator.set_status(AppIndicator.IndicatorStatus.ACTIVE)
             self._indicator.set_menu(self._build_menu_gtk3())
             self._active = True
             return
@@ -50,13 +50,13 @@ class TrayIcon:
 
         try:
             gi.require_version('AppIndicator3', '0.1')
-            from gi.repository import AppIndicator3 as AI
-            self._indicator = AI.Indicator.new(
+            from gi.repository import AppIndicator3 as AppIndicator
+            self._indicator = AppIndicator.Indicator.new(
                 "nvbroadcast",
                 str(icon_path),
-                AI.IndicatorCategory.APPLICATION_STATUS,
+                AppIndicator.IndicatorCategory.APPLICATION_STATUS,
             )
-            self._indicator.set_status(AI.IndicatorStatus.ACTIVE)
+            self._indicator.set_status(AppIndicator.IndicatorStatus.ACTIVE)
             self._indicator.set_menu(self._build_menu_gtk3())
             self._active = True
             return

@@ -1,5 +1,39 @@
 # Changelog
 
+## v1.1.11-headless.5 - Killer performance and release cleanup
+
+This release replaces `v1.1.11-headless.4`.
+It keeps the headless fork focused on the original app controls while making the
+high-performance camera path safer on real webcams and driver stacks.
+
+### What changed for users
+
+- Restored the intended `Killer` profile behavior: TensorRT, performance mode,
+  fused CUDA compositing, and hardware camera decode are enabled as the first
+  choice.
+- Added an automatic hardware-decode fallback for webcams/drivers where NVIDIA
+  JPEG decode fails. `Killer` now retries with software camera decode while
+  keeping TensorRT and fused CUDA active.
+- Fixed the microphone return button so it validates the selected output device,
+  unloads stale loopbacks, and falls back to the default speaker when needed.
+- Kept `DocZeus` on the stable TensorRT balanced path instead of the heavier
+  max-quality path that was freezing on this machine.
+- Kept TensorRT inference inline for performance profiles so the alpha/matte path
+  does not fight a background worker.
+- Removed GitHub test jobs from the release workflow; package builds and release
+  publishing remain.
+- Removed visible automation wording from project files and app metadata.
+
+### Validation
+
+- Verified `Killer` starts as:
+  `mode=killer profile=performance quality=performance trt=True fused=True`.
+- Verified the camera pipeline logs the hardware decode fallback when the NVIDIA
+  JPEG decoder fails:
+  `Hardware decode fallback active: software JPEG decode`.
+- Focused tests passed for auto mode tuning, headless CLI, package metadata, and
+  update verification.
+
 ## v1.1.11-headless.4 - Headless fork consolidated release
 
 This release consolidates the earlier headless test tags into one user-facing build.

@@ -1,7 +1,7 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
 # Licensed under GPL-3.0 - see LICENSE file
-# Original author: doczeus | AI Powered
+# Original author: doczeus
 #
 """Application constants."""
 
@@ -10,7 +10,7 @@ from pathlib import Path
 
 APP_ID = "com.doczeus.NVBroadcast"
 APP_NAME = "NV Broadcast"
-APP_SUBTITLE = "by doczeus | AI Powered"
+APP_SUBTITLE = "by doczeus"
 
 DEFAULT_WIDTH = 1280
 DEFAULT_HEIGHT = 720

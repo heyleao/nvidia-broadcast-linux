@@ -48,7 +48,7 @@ MODE_LABELS = {
     "cuda_max": "CUDA - qualidade",
     "cuda_balanced": "CUDA - balanceado",
     "cuda_perf": "CUDA - performance",
-    "doczeus": "DocZeus - TensorRT qualidade maxima",
+    "doczeus": "DocZeus - TensorRT estavel",
     "zeus": "TensorRT - Zeus balanceado",
     "killer": "TensorRT - Killer performance",
 }
@@ -89,6 +89,39 @@ def _service_main_pid(service: str) -> int | None:
 
 def _pactl(args: list[str]) -> subprocess.CompletedProcess[str]:
     return subprocess.run(["pactl", *args], capture_output=True, text=True)
+
+
+def _pactl_stdout(args: list[str]) -> str:
+    result = _pactl(args)
+    return result.stdout.strip() if result.returncode == 0 else ""
+
+
+def _default_sink() -> str:
+    return _pactl_stdout(["get-default-sink"]) or "@DEFAULT_SINK@"
+
+
+def _sink_exists(sink: str) -> bool:
+    if sink == "@DEFAULT_SINK@":
+        return True
+    result = _pactl(["list", "sinks", "short"])
+    if result.returncode != 0:
+        return False
+    for line in result.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 2 and parts[1] == sink:
+            return True
+    return False
+
+
+def _source_exists(source: str) -> bool:
+    result = _pactl(["list", "sources", "short"])
+    if result.returncode != 0:
+        return False
+    for line in result.stdout.splitlines():
+        parts = line.split("\t")
+        if len(parts) >= 2 and parts[1] == source:
+            return True
+    return False
 
 
 def _monitor_loopback_modules() -> list[str]:
@@ -872,8 +905,14 @@ class HeadlessControlWindow(Gtk.ApplicationWindow):
         if not _active(AUDIO_SERVICE):
             self._toast("Ligue o microfone antes de ouvir o retorno")
             return
+        if not _source_exists(VIRTUAL_MIC_SOURCE):
+            self._toast("Microfone virtual ainda nao esta pronto")
+            return
+        _unload_monitor_loopbacks()
         config = load_config()
-        sink = config.audio.speaker_device or "@DEFAULT_SINK@"
+        sink = config.audio.speaker_device or _default_sink()
+        if not _sink_exists(sink):
+            sink = _default_sink()
         result = _pactl(
             [
                 "load-module",
@@ -881,14 +920,31 @@ class HeadlessControlWindow(Gtk.ApplicationWindow):
                 f"source={VIRTUAL_MIC_SOURCE}",
                 f"sink={sink}",
                 "latency_msec=60",
+                "source_dont_move=true",
+                "sink_dont_move=true",
             ]
         )
+        if result.returncode != 0:
+            fallback_sink = _default_sink()
+            if fallback_sink != sink:
+                result = _pactl(
+                    [
+                        "load-module",
+                        "module-loopback",
+                        f"source={VIRTUAL_MIC_SOURCE}",
+                        f"sink={fallback_sink}",
+                        "latency_msec=60",
+                        "source_dont_move=true",
+                        "sink_dont_move=true",
+                    ]
+                )
+                sink = fallback_sink
         if result.returncode != 0:
             self._toast(result.stderr.strip() or "Falha ao ativar retorno do mic")
             return
         self._monitor_module_id = result.stdout.strip()
         self._monitor_btn.set_label("Parar retorno")
-        self._toast("Retorno do microfone ativado")
+        self._toast(f"Retorno do microfone ativado em {sink}")
 
     def _stop_audio_monitor(self) -> None:
         self._monitor_module_id = None

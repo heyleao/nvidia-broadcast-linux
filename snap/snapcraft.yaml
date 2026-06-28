@@ -3,7 +3,7 @@ base: core24
 version: '1.1.11'
 summary: Live background performance and stability patch
 description: |
-  NV Broadcast is an AI-powered virtual camera and voice enhancement app for
+  NV Broadcast is an GPU-accelerated virtual camera and voice enhancement app for
   Linux. It brings background blur, background replace, green-screen remove,
   eye contact correction, face relighting, video enhancement, recording, and
   local meeting transcription into one app.
@@ -58,7 +58,7 @@ description: |
   - Eye contact correction while reading or presenting
   - Face relighting to better match the background
   - Video enhancement with skin smooth, denoise, enhance, and sharpen controls
-  - Voice studio tools plus local AI meeting transcription and summaries
+  - Voice studio tools plus local Meeting transcription and summaries
   - DocZeus, Zeus, Killer, CUDA, and CPU processing modes for different systems
   - Works with Zoom, Chrome, OBS, Discord, and other webcam apps
 

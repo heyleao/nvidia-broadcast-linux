@@ -1,7 +1,7 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
 # Licensed under GPL-3.0 - see LICENSE file
-# Original author: doczeus | AI Powered
+# Original author: doczeus
 #
 """GPU detection and selection utilities."""
 
@@ -106,7 +106,7 @@ def get_cuda_device_id(nvsmi_index: int) -> int:
 
 
 def select_compute_gpu(gpus: list[GpuInfo], preferred_index: int = 0) -> GpuInfo | None:
-    """Select the GPU for AI compute workloads."""
+    """Select the GPU for GPU compute workloads."""
     if not gpus:
         return None
 

@@ -1,7 +1,7 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
 # Licensed under GPL-3.0 - see LICENSE file
-# Original author: doczeus | AI Powered
+# Original author: doczeus
 #
 """NVIDIA Broadcast - setup once and forget.
 
@@ -84,16 +84,16 @@ _MODE_LABELS = {
     "cuda_max": "CUDA - High Quality",
     "cuda_balanced": "CUDA - Balanced",
     "cuda_perf": "CUDA - Fast",
-    "doczeus": "DocZeus - TensorRT Max Quality",
+    "doczeus": "DocZeus - TensorRT Stable",
     "zeus": "TensorRT - Zeus Balanced",
-    "killer": "TensorRT - Killer Fast",
+    "killer": "TensorRT - Killer Performance",
     "cpu_quality": "CPU - High Quality",
     "cpu_light": "CPU - Fast",
     "cpu_low": "CPU - Low End",
 }
 
 _MODE_QUALITY_PRESETS = {
-    "doczeus": "ultra",
+    "doczeus": "balanced",
     "cuda_max": "quality",
     "cuda_balanced": "balanced",
     "cuda_perf": "performance",
@@ -424,7 +424,7 @@ class NVBroadcastApp(Adw.Application):
         return True  # Keep polling
 
     def _preload_effects(self):
-        """Pre-initialize AI models in background to eliminate first-use delay."""
+        """Pre-initialize processing models in background to eliminate first-use delay."""
         def _init():
             try:
                 if self.config.video.background_removal:
@@ -993,6 +993,8 @@ class NVBroadcastApp(Adw.Application):
         it spends GPU time where available instead of letting CPU-side stale
         mattes create a delayed edge.
         """
+        if bool(self.config.use_tensorrt):
+            return True
         if self.config.performance_profile in ("max_quality", "balanced"):
             return True
         return (
@@ -1550,7 +1552,7 @@ class NVBroadcastApp(Adw.Application):
         return True
 
     def set_compute_gpu(self, gpu_index: int):
-        """Switch the GPU used for AI compute."""
+        """Switch the GPU used for GPU compute."""
         if gpu_index == self.config.compute_gpu:
             return
         self.config.compute_gpu = gpu_index
@@ -1776,7 +1778,7 @@ class NVBroadcastApp(Adw.Application):
     def is_recording(self) -> bool:
         return self._video_pipeline and self._video_pipeline.is_recording
 
-    # --- Meeting (Recording + AI Transcription) ---
+    # --- Meeting (Recording + Local Transcription) ---
 
     def start_meeting(self) -> str:
         """Start meeting: records video+audio and transcribes speech."""

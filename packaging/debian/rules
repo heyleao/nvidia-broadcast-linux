@@ -9,7 +9,7 @@ override_dh_auto_install:
 	cp -r src pyproject.toml requirements.txt LICENSE README.md \
 		$(CURDIR)/debian/nvbroadcast/opt/nvbroadcast/
 
-	# Models directory (AI models downloaded on first run)
+	# Models directory (processing models downloaded on first run)
 	install -d $(CURDIR)/debian/nvbroadcast/opt/nvbroadcast/models
 
 	# Data files (icons, backgrounds, configs)

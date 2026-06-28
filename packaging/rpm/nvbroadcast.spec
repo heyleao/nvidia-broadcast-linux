@@ -26,12 +26,12 @@ Recommends:     libayatana-appindicator-gtk3
 
 %description
 NV Broadcast is an unofficial NVIDIA Broadcast for Linux and other OS.
-AI-powered virtual camera with background removal, blur, replacement,
-video enhancement, auto-framing, noise cancellation, and AI meeting
+GPU-accelerated virtual camera with background removal, blur, replacement,
+video enhancement, auto-framing, noise cancellation, and Meeting
 transcription using GPU-accelerated deep learning.
 
 Features:
-- AI Meeting Transcription (local Whisper, no cloud needed)
+- Meeting Transcription (local Whisper, no cloud needed)
 - Voice Effects (real-time audio processing)
 - Mic Selection (choose input microphone)
 - 9 processing modes (Killer, Zeus, DocZeus, CUDA, CPU)
@@ -39,7 +39,7 @@ Features:
 - Edge refinement neural network
 - Video enhancement (5 effects + presets)
 - Eye contact correction (gaze redirection to camera)
-- Face relighting (AI-powered lighting adjustment)
+- Face relighting (GPU-accelerated lighting adjustment)
 - Session recording (save processed video to file)
 - User profiles (save/load per-user settings)
 - Resolution selector (360p to 4K)
@@ -294,7 +294,7 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 - Preserve system virtual camera configuration during uninstall
 
 * Mon Mar 23 2026 doczeus <harshit@kshoonya.com> - 1.0.0-1
-- AI Meeting Transcription (local Whisper, no cloud)
+- Meeting Transcription (local Whisper, no cloud)
 - Voice Effects (real-time audio processing)
 - Mic Selection (choose input microphone)
 - Complete audio system overhaul
@@ -302,7 +302,7 @@ pkill -f "nvbroadcast" 2>/dev/null || true
 
 * Mon Mar 23 2026 doczeus <harshit@kshoonya.com> - 0.3.0-1
 - Eye contact correction (gaze redirection)
-- Face relighting (AI lighting adjustment)
+- Face relighting (lighting adjustment)
 - Session recording (save processed video)
 - User profiles (per-user settings)
 

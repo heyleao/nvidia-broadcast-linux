@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # NVIDIA Broadcast for Linux - Installer
-# by doczeus | AI Powered
+# by doczeus
 #
 # Supports: Ubuntu, Debian, Pop!_OS, Linux Mint, Fedora, RHEL, CentOS,
 #           Arch, Manjaro, EndeavourOS, openSUSE, Gentoo, Void, NixOS
@@ -21,7 +21,7 @@ PY
 
 echo "========================================="
 echo "  NVIDIA Broadcast for Linux"
-echo "  by doczeus | AI Powered"
+echo "  by doczeus"
 echo "========================================="
 echo ""
 
@@ -793,7 +793,7 @@ mkdir -p "$AUTOSTART_DIR"
 cat > "$AUTOSTART_DIR/com.doczeus.NVBroadcast.desktop" << EOF
 [Desktop Entry]
 Name=NVIDIA Broadcast
-Comment=AI-powered virtual camera - by doczeus
+Comment=GPU-accelerated virtual camera - by doczeus
 Exec=$INSTALL_PREFIX/bin/nvbroadcast
 Icon=com.doczeus.NVBroadcast
 Terminal=false
@@ -807,7 +807,7 @@ echo ""
 echo "========================================="
 echo "  Installation Complete! v$APP_VERSION"
 echo "  NVIDIA Broadcast for Linux"
-echo "  by doczeus | AI Powered"
+echo "  by doczeus"
 echo "========================================="
 echo ""
 echo "  System: $DISTRO_NAME ($PKG_MANAGER)"

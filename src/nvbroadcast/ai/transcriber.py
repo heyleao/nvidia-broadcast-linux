@@ -1,6 +1,6 @@
 """Meeting transcription -- local Whisper-based speech-to-text.
 
-Uses OpenAI Whisper (open-source) running locally.
+Uses Whisper (open-source) running locally.
 No data leaves the machine. Transcribes audio chunks in real-time
 and saves complete transcript at meeting end.
 """

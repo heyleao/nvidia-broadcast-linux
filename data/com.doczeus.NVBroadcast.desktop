@@ -1,6 +1,6 @@
 [Desktop Entry]
 Name=NVIDIA Broadcast
-Comment=AI-powered virtual camera, background removal, and noise cancellation - by doczeus
+Comment=GPU-accelerated virtual camera, background removal, and noise cancellation - by doczeus
 Exec=nvbroadcast
 Icon=com.doczeus.NVBroadcast
 Terminal=false

@@ -1,7 +1,7 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
 # Licensed under GPL-3.0 - see LICENSE file
-# Original author: doczeus | AI Powered
+# Original author: doczeus
 #
 """GStreamer video pipeline with two modes:
 
@@ -44,6 +44,8 @@ class VideoPipeline:
         self._output_format: str = "YUY2"
         self._capture_format: str = "mjpeg"
         self._prefer_hw_decode = False
+        self._hw_decode_active = False
+        self._hw_decode_fallback_attempted = False
         self._effects_fps: int = 30  # Can be reduced by performance profile
         self._effect_callback = None
         self._alpha_callback = None
@@ -206,6 +208,8 @@ class VideoPipeline:
         self._output_format = output_format
         self._effects_fps = min(effects_fps, fps)
         self._prefer_hw_decode = prefer_hw_decode
+        self._hw_decode_active = False
+        self._hw_decode_fallback_attempted = False
         from nvbroadcast.core.platform import IS_MACOS
         if IS_MACOS:
             self._capture_format = "raw"
@@ -231,6 +235,7 @@ class VideoPipeline:
             return "videoconvert" if effects_mode else "identity"
 
         if self._prefer_hw_decode and self._has_gst_element("nvjpegdec"):
+            self._hw_decode_active = True
             if effects_mode:
                 return "nvjpegdec ! cudadownload ! videoconvert"
             return "nvjpegdec ! cudadownload"
@@ -361,6 +366,7 @@ class VideoPipeline:
 
     def build(self, vcam_enabled: bool = True) -> None:
         self._vcam_enabled = vcam_enabled
+        self._hw_decode_active = False
 
         if self._effects_active:
             self._build_effects_pipeline(vcam_enabled)
@@ -559,7 +565,7 @@ class VideoPipeline:
         """Capture callback — composites EVERY frame inline for zero edge lag.
 
         Architecture:
-        - Background thread: runs heavy AI inference to update the alpha mask
+        - Background thread: runs heavy model inference to update the alpha mask
         - Inline (this callback): composites the CURRENT frame with latest alpha
           + applies face effects, beautify, mirror (all lightweight)
 
@@ -924,9 +930,51 @@ class VideoPipeline:
 
     def _on_error(self, bus, msg):
         err, debug = msg.parse_error()
+        if (
+            self._hw_decode_active
+            and self._prefer_hw_decode
+            and not self._hw_decode_fallback_attempted
+        ):
+            self._hw_decode_fallback_attempted = True
+            self._prefer_hw_decode = False
+            print(
+                "[NV Broadcast] Hardware camera decode failed; retrying with software decode",
+                flush=True,
+            )
+            GLib.idle_add(self._restart_with_software_decode, priority=GLib.PRIORITY_HIGH)
+            return
         print(f"[NV Broadcast] Capture error: {err.message}")
         if debug:
             print(f"[NV Broadcast] Debug: {debug}")
+
+    def _restart_with_software_decode(self):
+        """Rebuild the active pipeline after hardware JPEG decode fails."""
+        if self._pipeline is None:
+            return False
+
+        with self._teardown_lock:
+            cap = self._pipeline
+            vcam = self._vcam_pipeline
+            self._running = False
+            self._pipeline = None
+            self._vcam_pipeline = None
+            self._vcam_appsrc = None
+
+        try:
+            if cap:
+                cap.set_state(Gst.State.NULL)
+            if vcam and not self._vcam_failed:
+                vcam.set_state(Gst.State.NULL)
+        except Exception as exc:
+            print(f"[NV Broadcast] Hardware decode fallback cleanup failed: {exc}", flush=True)
+
+        try:
+            self.build(vcam_enabled=self._vcam_enabled)
+            self.start()
+            print("[NV Broadcast] Hardware decode fallback active: software JPEG decode", flush=True)
+        except Exception as exc:
+            print(f"[NV Broadcast] Hardware decode fallback failed: {exc}", flush=True)
+        return False
 
     def _on_vcam_error(self, bus, msg):
         err, debug = msg.parse_error()

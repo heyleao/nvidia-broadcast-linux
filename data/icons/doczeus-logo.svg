@@ -11,5 +11,5 @@
   <!-- Text: oczeus -->
   <text x="40" y="34" font-family="system-ui, -apple-system, sans-serif" font-size="28" font-weight="bold" fill="#e0e0e0" letter-spacing="1">oczeus</text>
   <!-- Tagline -->
-  <text x="40" y="46" font-family="system-ui, sans-serif" font-size="9" fill="#76b900" letter-spacing="2">AI POWERED</text>
+  <text x="40" y="46" font-family="system-ui, sans-serif" font-size="9" fill="#76b900" letter-spacing="2">GPU ACCELERATED</text>
 </svg>

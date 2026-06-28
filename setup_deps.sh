@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install system dependencies for NVIDIA Broadcast
-# by doczeus | AI Powered
+# by doczeus
 set -e
 
 echo "=== NVIDIA Broadcast Dependency Installer ==="
@@ -54,4 +54,4 @@ echo "Activate: source .venv/bin/activate"
 echo "Run GUI:  python -m nvbroadcast"
 echo "Run VCam: python -m nvbroadcast.vcam_service"
 echo ""
-echo "AI models will be auto-downloaded on first use."
+echo "processing models will be auto-downloaded on first use."

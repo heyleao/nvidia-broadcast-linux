@@ -1,7 +1,7 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
 # Licensed under GPL-3.0 - see LICENSE file
-# Original author: doczeus | AI Powered
+# Original author: doczeus
 #
 """First-run setup wizard — auto-detects system and configures optimally."""
 
@@ -172,7 +172,7 @@ class SetupWizard(Adw.Window):
 
         # GPU Selection (only if multiple)
         if len(self._gpus) > 1:
-            gpu_frame = Gtk.Frame(label="GPU for AI Effects")
+            gpu_frame = Gtk.Frame(label="GPU for video effects")
             gpu_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
             gpu_box.set_margin_start(8)
             gpu_box.set_margin_end(8)

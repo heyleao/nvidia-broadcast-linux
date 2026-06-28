@@ -1,7 +1,7 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
 # Licensed under GPL-3.0 - see LICENSE file
-# Original author: doczeus | AI Powered
+# Original author: doczeus
 #
 """Headless virtual camera service with video effects.
 
@@ -99,7 +99,7 @@ def build_pipeline(
         return Gst.parse_launch(pipeline_str)
 
 MODE_MAP = {
-    "doczeus": ("max_quality", "cupy", True, False, False),
+    "doczeus": ("balanced", "cupy", True, False, False),
     "cuda_max": ("max_quality", "cupy", False, False, False),
     "cuda_balanced": ("balanced", "cupy", False, False, False),
     "cuda_perf": ("performance", "cupy", False, True, False),
@@ -111,7 +111,7 @@ MODE_MAP = {
 }
 
 MODE_QUALITY_PRESETS = {
-    "doczeus": "quality",
+    "doczeus": "balanced",
     "cuda_max": "quality",
     "cuda_balanced": "balanced",
     "cuda_perf": "performance",
@@ -175,7 +175,7 @@ class HeadlessEffectsCamera:
         quality = MODE_QUALITY_PRESETS.get(mode_key, self.config.video.quality_preset)
 
         self.use_nvdec = use_nvdec
-        self.inline_inference = profile_name in ("max_quality", "balanced")
+        self.inline_inference = bool(use_tensorrt) or profile_name in ("max_quality", "balanced")
 
         effects = VideoEffects(
             gpu_index=int(self.config.compute_gpu),

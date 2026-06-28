@@ -1,11 +1,11 @@
 # NVIDIA Broadcast for Linux
 # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
 # Licensed under GPL-3.0 - see LICENSE file
-# Original author: doczeus | AI Powered
+# Original author: doczeus
 #
 """Audio noise removal using RNNoise.
 
-Real-time AI-powered noise suppression for microphone input.
+Real-time GPU-accelerated noise suppression for microphone input.
 Uses Mozilla's RNNoise via pyrnnoise (low-level C API).
 """
 

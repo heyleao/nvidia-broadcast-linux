@@ -4,6 +4,11 @@
 
 <h1 align="center">NV Broadcast</h1>
 
+> [!IMPORTANT]
+> This repository is a **downstream headless variant** of NV Broadcast, originally created by [DocZeus (@Hkshoonya)](https://github.com/Hkshoonya). **Canonical upstream:** [Hkshoonya/nvidia-broadcast-linux](https://github.com/Hkshoonya/nvidia-broadcast-linux).
+>
+> Downstream releases and support are maintained in [heyleao/nvidia-broadcast-linux](https://github.com/heyleao/nvidia-broadcast-linux). For issues specific to this variant, use [this repository's issue tracker](https://github.com/heyleao/nvidia-broadcast-linux/issues). The original author's first-person account below is retained from upstream.
+
 <p align="center">
   <strong>by DocZeus</strong>
 </p>

@@ -39,7 +39,7 @@ Thank you for your interest in contributing! This project was built for the Linu
 - Copyright header on new `.py` files:
   ```python
   # NVIDIA Broadcast for Linux
-  # Copyright (c) 2026 doczeus (https://github.com/doczeus)
+  # Copyright (c) 2026 doczeus (https://github.com/Hkshoonya)
   # Licensed under GPL-3.0 - see LICENSE file
   # Original author: doczeus
   #
